@@ -1,0 +1,12 @@
+{
+  "name": "ff-game",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "Game": {
+        "$path": "src/ServerScriptService"
+      }
+    }
+  }
+}
