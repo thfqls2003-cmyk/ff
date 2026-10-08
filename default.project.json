@@ -7,6 +7,21 @@
       "Game": {
         "$path": "src/ServerScriptService"
       }
+    },
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Game": {
+        "$path": "src/ReplicatedStorage"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "Game": {
+          "$path": "src/StarterPlayerScripts"
+        }
+      }
     }
   }
 }
