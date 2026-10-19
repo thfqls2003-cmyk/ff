@@ -1,0 +1,4931 @@
+{
+ "meta": {
+  "id": "boss20_final",
+  "title": "레벨 폭발 모험단 — 20보스 최종 통합 설계 (B_dopamine 뼈대 + A/C/D 이식)",
+  "version": "1.1",
+  "units": "체력/공격력/경험치 정수, 시간 초, 거리 stud",
+  "skeleton": "B_dopamine (앵커 보정·체력바·타격 상한·피버·need(L)=10(1+L/1000)^0.3·3길)",
+  "grafts": [
+   "A: 흡혈 초당 상한 max(5%, 0.8×흡혈률), 험로 루프 에너지(2전투 −2 + 보스 +5), 숨은 보스 조건 4종, 치명 관통/장갑 보스, 도박 구역 1회 소진",
+   "C: PvE/PvP 상한표 + pvp_disabled, 누진 사망 비용 3·4·5·6, 보스 고유 정수(+5 이상), 3연속 실패 천장, 7일 무료 체험·순간이동권·기록의 책·보스 러시",
+   "D: 보스 성향(목표 초 ×, 공격 ×), 행운 보너스 '포인트 2배 당첨 p≤0.5', 제단 입장 체력 가득, 하위 5→상위 1 교환, 워프 제단, --check 재생성 검증, 재처치 무사망 +1 강화석"
+  ],
+  "notes": [
+   "자동 타격과 버튼 평타는 1.0초 쿨다운을 공유한다 (v7 1.1/0.6 → 변경: 탭 속도 우위 제거, PvP 예측 가능).",
+   "리듬 탭(쿨다운 뒤 0.5초 창) 성공 = 콤보 +1, 실패 = 유지, 1.5초 무입력 = 0. 10콤보 = 피버 5초(공속 ×1.5). 보정 기준 탭 성공률 0.6(보수적).",
+   "보스 타격당 피해 상한(hit_cap, 장갑) 3~5%. 치명타는 상한 ×1.5(관통), 광전사 반지로 ×2.0, 일부 보스는 관통 ×1.2 제한. 풀 +10 에서도 보스전 ≥10초가 되게 빠른 보스 9종의 상한을 0.5%p 낮췄다(v1.1).",
+   "플레이어가 받는 한 타격 상한 = 최대 체력 75%. 어느 쪽도 한 방 즉사 없음.",
+   "한 판 = 가운데 길 10단계 + (5단계 광장) 질풍 루프 5구간 + (10단계 광장) 군단 루프 5구간 = 보스 20. 루프는 선택."
+  ]
+ },
+ "stats": {
+  "hp": {
+   "name_ko": "체력",
+   "base": 100,
+   "per_pt": 10,
+   "auto_ratio": 1.0,
+   "desc_ko": "최대 체력 = (100 + 10×체력pt) × 장비 체력 배율"
+  },
+  "atk": {
+   "name_ko": "힘",
+   "base": 10,
+   "per_pt": 2,
+   "auto_ratio": 2.0,
+   "desc_ko": "공격력 = (10 + 2×힘pt) × 장비 공격 배율. 피해 = 공격력 × U(0.9,1.1) × 치명 배율"
+  },
+  "luk": {
+   "name_ko": "행운",
+   "base": 1,
+   "per_pt": 1,
+   "auto_ratio": 0.5,
+   "desc_ko": "치명타 확률, 레벨업 '행운! 2배 당첨' 확률, 정수 추가 드롭, (PvP) 회피"
+  },
+  "ls": {
+   "name_ko": "흡혈",
+   "base": 0,
+   "per_pt": 1,
+   "auto_ratio": 0.5,
+   "desc_ko": "포인트 P → 흡혈% = 30%×P/(P + 1.0×레벨 + 50) (장비와 합산; 균형 분배 ≈9%, 흡혈 2배 분배 ≈13%, 몰빵 ≈20%). 초당 회복 상한(0.8×흡혈률)을 함께 올린다"
+  },
+  "pts_per_level": 3
+ },
+ "formulas": {
+  "crit": {
+   "base": 0.05,
+   "span": 0.6,
+   "lvl_coef": 0.5,
+   "c": 40,
+   "mult_base": 2.0,
+   "text_ko": "치명타 확률 = min(상한, 5% + 60%×행운/(행운 + 0.5×레벨 + 40) + 장비). 치명타 피해 = min(상한, ×2.0 + 장비). 보스 상한 관통 ×1.5(기본)."
+  },
+  "luck_bonus": {
+   "p_coef": 0.5,
+   "lvl_coef": 0.5,
+   "c": 50,
+   "p_cap": 0.5,
+   "double_mult": 2.0,
+   "text_ko": "레벨 1 오를 때마다 확률 p = min(50%, 0.5×행운/(행운 + 0.5×레벨 + 50)) 로 그 레벨의 포인트 3 → 6 ('행운!' 팝). 기대 포인트 = 3×(1+p) ≤ 4.5 (상한 ×1.5). 고레벨은 '행운 ×n' 묶음 표시."
+  },
+  "lifesteal": {
+   "max_from_pts": 0.3,
+   "lvl_coef": 1.0,
+   "c": 50,
+   "heal_per_s_cap_base": 0.05,
+   "heal_per_s_ls_coef": 0.8,
+   "text_ko": "흡혈% = min(상한, 30%×P/(P + 1.0×레벨 + 50) + 장비). 초당 회복 상한 = max(5% + 성배, 0.8×흡혈률) × 최대 체력 (스윙당 상한 = 그 값 × 공격 간격) → 공속을 올려도 회복은 늘지 않고, 흡혈에 투자하면 상한이 오른다. 보스 기믹으로 흡혈 ×0.5."
+  },
+  "aspd": {
+   "half": 1.5,
+   "fever_abs_cap": 2.5,
+   "text_ko": "공속 배율 = 1 + S/(1 + S/1.5), S = 장비 공속 보너스 합. S 0.6→1.43, 0.9→1.56, 1.2→1.67, ∞→2.5(상한). 음수는 1+S. 피버 ×1.5 는 별도, 절대 상한 ×2.5(간격 0.40초 — 풀 +10 보스전 10초 하한을 지키는 선)."
+  },
+  "range": {
+   "base": 9,
+   "cap": 18,
+   "per_target": 3,
+   "text_ko": "공격 범위 R = min(18, 9 + 장비). 동시 타격 수 = min(살아있는 적, 상한, 1 + floor((R−9)/3)). 13.5 → 2마리, 15+ → 3마리."
+  },
+  "damage_taken": {
+   "player_hit_cap": 0.75,
+   "zone_dmg_mult": 1.5,
+   "var_lo": 0.9,
+   "var_hi": 1.1,
+   "text_ko": "받는 피해 = 몬스터 공격력 × U(0.9,1.1) × (1−피해감소) × (도박 구역 1.5). 한 타격 상한 = 최대 체력 75%. 사망 시 그 자리 부활·체력 가득·무적 2.5초(+수호 부적), 적 체력 유지."
+  },
+  "exp_gain": {
+   "zone_exp_mult": 2.0,
+   "text_ko": "획득 경험치 = 몬스터 경험치 × 장비 경험치 배율 × (도박 구역 ×2, 행운의 왕관 +0.5) × (보스: 영혼 왕관 ×2)."
+  }
+ },
+ "caps": {
+  "text_ko": "장비·강화·스탯을 아무리 쌓아도 못 넘는 선. PvE 열은 판에서, PvP 열은 마을 결투장에서. 같은 코드가 열만 바꿔 읽는다.",
+  "pve": {
+   "aspd_mult": 2.5,
+   "lifesteal": 0.3,
+   "heal_per_s_max": 0.2,
+   "crit_p": 0.6,
+   "crit_mult": 4.0,
+   "crit_pierce": 2.0,
+   "dmg_reduce": 0.4,
+   "reflect": 0.3,
+   "splash": 0.5,
+   "range_targets": 3,
+   "exp_mult": 3.5,
+   "boss_exp_mult": 2.0,
+   "atk_mult": 3.5,
+   "hp_mult": 2.0,
+   "hit_taken_cap": 0.75,
+   "dmg_mult": 1.0
+  },
+  "pvp": {
+   "aspd_mult": 2.2,
+   "lifesteal": 0.3,
+   "heal_per_s_max": 0.06,
+   "crit_p": 0.5,
+   "crit_mult": 3.0,
+   "crit_pierce": 1.0,
+   "dmg_reduce": 0.4,
+   "reflect": 0.1,
+   "splash": 0.15,
+   "range_targets": 2,
+   "exp_mult": 1.0,
+   "boss_exp_mult": 1.0,
+   "atk_mult": 2.5,
+   "hp_mult": 2.0,
+   "hit_taken_cap": 0.12,
+   "dmg_mult": 0.08
+  },
+  "names_ko": {
+   "aspd_mult": "공속 배율",
+   "lifesteal": "흡혈률",
+   "heal_per_s_max": "초당 회복 상한 최대",
+   "crit_p": "치명 확률",
+   "crit_mult": "치명 피해",
+   "crit_pierce": "상한 관통",
+   "dmg_reduce": "피해감소",
+   "reflect": "반격",
+   "splash": "스플래시",
+   "range_targets": "동시 타격 수",
+   "exp_mult": "경험치 배율",
+   "boss_exp_mult": "보스 경험치 배율",
+   "atk_mult": "공격 배율",
+   "hp_mult": "체력 배율",
+   "hit_taken_cap": "받는 한 타 상한(최대 체력 비율)",
+   "dmg_mult": "피해 보정"
+  }
+ },
+ "exp_curve": {
+  "n0": 10,
+  "K": 1000,
+  "a": 0.3,
+  "text_ko": "need(L) = 10×(1+L/1000)^0.3. 누적 E(L) = 7692.3×((1+L/1000)^1.3 − 1.0013). 역함수 L(E) = 1000×((E/7692.3 + 1.0013)^(1/1.3) − 1). need(1)=10, need(1만)=20.5, need(100만)=79, need(1억)=316."
+ },
+ "combat": {
+  "attack_interval": 1.0,
+  "button_shares_cooldown": true,
+  "button_range": 11,
+  "auto_range": 9,
+  "first_hit": 1.2,
+  "approach_s": 0.5,
+  "crit_cap_mult": 1.5,
+  "zone_p_manual": 0.35,
+  "zone_p_auto": 0.22,
+  "zone_once_per_zone": true,
+  "max_fight_s": 240,
+  "revive_invuln": 2.5,
+  "death_anim_s": 1.5,
+  "spawn_s": 2.0,
+  "loot_s": 0.8,
+  "boss_intro_s": 3.0,
+  "door_s": 4.0,
+  "after_fight_heal": 0.5,
+  "regen_per_s": 0.06,
+  "fever_hits": 10,
+  "fever_dur_s": 5.0,
+  "fever_aspd": 1.5,
+  "manual_combo_p": 0.6,
+  "tap_window_s": 0.5,
+  "combo_idle_reset_s": 1.5,
+  "monster_attack_reach": "3.2 + 반지름",
+  "monster_windup_s": 0.45,
+  "timing": {
+   "add_spawn_stagger_s": 0.3,
+   "boss_attack_after_transition_s": 0.8,
+   "boss_attack_delay_after_transition_hit_s": 0.6,
+   "boss_attack_delay_after_stagger_s": 0.4,
+   "near_miss_hp_frac": 0.15,
+   "no_boss_door_s_mult": 0.5,
+   "text_ko": "소환수는 0.3초 간격으로 순차 등장. 체력바 전환이 끝난 뒤 보스 첫 공격 0.8초. 전환/그로기 중 공격 차례가 돌아온 보스는 각각 0.6/0.4초 뒤에 공격. 니어미스 = 체력 15% 이하로 떨어졌다가 무사망 승리. 조건부 보스가 안 나온 구간의 문 열림 연출 = 4초×0.5."
+  },
+  "text_ko": "도박 구역: 반지름 10, 구간마다 2~3곳, 그 안에서 시작한 전투는 경험치 ×2·받는 피해 ×1.5, 전투 1회 뒤 그 구역은 이번 판 소진. 수동 35%/자동 22% 의 전투가 구역에서 시작. 전투 종료 시 최대 체력 50% 즉시 회복 + 비전투 초당 6%. 보스 제단 입장 시 체력 가득."
+ },
+ "run": {
+  "energy_start": 16,
+  "energy_fight": 1,
+  "energy_death_base": 3,
+  "energy_death_step": 1,
+  "energy_death_max": 6,
+  "energy_boss_main": 4,
+  "energy_boss_loop": 5,
+  "boss_altar_full_heal": true,
+  "death_counter_reset_at_plaza": true,
+  "move_speed": 20,
+  "village_to_gate_s": 14,
+  "result_s": 5,
+  "encounter": {
+   "stud_per_bar": 25,
+   "bars_full": 6,
+   "start_bar": 3,
+   "p_per_s_per_bar": 0.15,
+   "target_fights_main": 4,
+   "target_fights_loop": 2,
+   "text_ko": "조우 게이지 1칸 = 25 stud. 3칸부터 매초 칸수×15%. 가운데 길 구간당 4전투, 루프 구간당 2전투가 되도록 길이를 맞춤."
+  },
+  "warp": {
+   "unlock_kills": 3,
+   "start_energy": 12,
+   "level_factor": 0.9,
+   "warp_s": 5,
+   "text_ko": "워프 제단: 광장 문 보스(청색의 드래곤/황제 드래곤)를 3회 처치하면 그 광장에서 판 시작 가능(레벨 = 그 광장 기준 진입 레벨 ×0.9, 에너지 12). 워프 판은 기록판에 '워프' 표식, 20보스 기록 제외."
+  },
+  "text_ko": "시작 에너지 16, 전투 승리 −1, 사망 n번째 = min(6, 3+(n−1)) → 3,4,5,6,6…(1~2번은 전략, 3번부터 벌), 가운데 보스 +4, 루프 보스 +5(그 전투는 −1 없음). 루프 구간 = 2전투 −2 + 보스 +5 = 순이익 +3 → '장비 갖춘 뒤 들어가는 에너지 광산'. 사망 누진 카운터는 광장(루프 입·출구)을 지날 때 0 으로 초기화('광장 휴식': 한 장(章) 안에서 3번부터 벌). 에너지 0 또는 복귀 = 판 종료(레벨 1·포인트 0, 장비·강화·강화석·정수·기록 유지). 문은 이번 판에 그 보스를 잡아야 열림. 조건부 보스가 등장하지 않은 구간은 문이 바로 열린다(보상 없음)."
+ },
+ "slots": {
+  "무기": 1,
+  "정령": 1,
+  "반지": 2,
+  "망토": 1,
+  "왕관": 1,
+  "부적": 1
+ },
+ "items": {
+  "I01": {
+   "name_ko": "엄니검",
+   "boss": "B01",
+   "slot": "무기",
+   "tier": 1,
+   "rank": 1,
+   "effects": [
+    {
+     "k": "atk_mult_bonus",
+     "v": 0.35,
+     "up": true
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "공격력 ×1.35 (힘 기반 배율 — 레벨과 함께 자란다). +10강 ×1.76.",
+   "pvp_ko": "허용"
+  },
+  "I02": {
+   "name_ko": "바람 정령",
+   "boss": "B02",
+   "slot": "정령",
+   "tier": 1,
+   "rank": 1,
+   "effects": [
+    {
+     "k": "S",
+     "v": 0.6,
+     "up": true
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "공속 보너스 S +0.6 → 배율 1.43(단독). +10강 S 1.30 → 1.70.",
+   "pvp_ko": "허용(공속 상한 2.2)"
+  },
+  "I03": {
+   "name_ko": "흡혈 송곳니",
+   "boss": "B03",
+   "slot": "반지",
+   "tier": 1,
+   "rank": 2,
+   "effects": [
+    {
+     "k": "ls",
+     "v": 0.05,
+     "up": true
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "흡혈 +5%p (총 30% 상한, 초당 회복 상한도 0.8×흡혈률로 오름). +10강 +10.8%p.",
+   "pvp_ko": "허용(흡혈 상한 30%·초당 회복 6%)"
+  },
+  "I04": {
+   "name_ko": "거인 망토",
+   "boss": "B04",
+   "slot": "망토",
+   "tier": 1,
+   "rank": 1,
+   "effects": [
+    {
+     "k": "range_add",
+     "v": 4.5,
+     "up": true
+    },
+    {
+     "k": "move_bonus",
+     "v": 0.1,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "공격 범위 9→13.5 stud = 동시에 2마리. 이동속도 +10%. +10강 범위 +9.7 → 3마리.",
+   "pvp_ko": "3v3 에서만 의미(2마리 상한)"
+  },
+  "I05": {
+   "name_ko": "에테르 왕관",
+   "boss": "B05",
+   "slot": "왕관",
+   "tier": 1,
+   "rank": 1,
+   "effects": [
+    {
+     "k": "exp_mult_bonus",
+     "v": 0.5,
+     "up": true
+    }
+   ],
+   "pvp_disabled": [
+    "exp_mult_bonus"
+   ],
+   "desc_ko": "얻는 경험치 ×1.5 (레벨 ×1.37). +10강 ×2.08 (총 ×3.5 상한).",
+   "pvp_ko": "무효(결투는 레벨 고정)"
+  },
+  "I06": {
+   "name_ko": "광전사 반지",
+   "boss": "B06",
+   "slot": "반지",
+   "tier": 2,
+   "rank": 3,
+   "effects": [
+    {
+     "k": "crit_dmg",
+     "v": 0.5,
+     "up": true
+    },
+    {
+     "k": "ls_crit_mult",
+     "v": 2.0,
+     "up": false
+    },
+    {
+     "k": "crit_pierce_add",
+     "v": 0.5,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [
+    "crit_pierce_add"
+   ],
+   "desc_ko": "치명타 피해 ×2 → ×2.5, 치명타 시 흡혈 2배, 보스 장갑 관통 ×1.5 → ×2.0(행운에 '장갑 뚫기' 역할). +10강 ×3.08.",
+   "pvp_ko": "허용(치명 ×3 상한, 관통 무효)"
+  },
+  "I07": {
+   "name_ko": "용암 망토",
+   "boss": "B07",
+   "slot": "망토",
+   "tier": 2,
+   "rank": 3,
+   "effects": [
+    {
+     "k": "dmg_reduce",
+     "v": 0.15,
+     "up": true
+    },
+    {
+     "k": "range_add",
+     "v": 3.0,
+     "up": false
+    },
+    {
+     "k": "reflect",
+     "v": 0.1,
+     "up": true
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "받는 피해 −15%(총 40% 상한), 받은 피해의 10% 반격, 범위 +3(2마리). +10강 −32%/22%.",
+   "pvp_ko": "허용(반격 10% 상한)"
+  },
+  "I08": {
+   "name_ko": "번개 정령",
+   "boss": "B08",
+   "slot": "정령",
+   "tier": 2,
+   "rank": 2,
+   "effects": [
+    {
+     "k": "S",
+     "v": 0.7,
+     "up": true
+    },
+    {
+     "k": "nth_crit",
+     "v": 5,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "공속 S +0.7, 매 5번째 타격은 치명타 확정(번개) — 저주 보스의 답. +10강 S 1.51.",
+   "pvp_ko": "허용"
+  },
+  "I09": {
+   "name_ko": "수호 부적",
+   "boss": "B09",
+   "slot": "부적",
+   "tier": 2,
+   "rank": 1,
+   "effects": [
+    {
+     "k": "revive_invuln_add",
+     "v": 2.0,
+     "up": true
+    },
+    {
+     "k": "first_death_cost",
+     "v": 1,
+     "up": false
+    },
+    {
+     "k": "dmg_reduce",
+     "v": 0.05,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [
+    "revive_invuln_add",
+    "first_death_cost"
+   ],
+   "desc_ko": "부활 무적 2.5→4.5초, 판마다 첫 사망의 에너지 −3 → −1, 받는 피해 −5%. +10강 무적 +4.3초.",
+   "pvp_ko": "피해감소 5%만 허용"
+  },
+  "I10": {
+   "name_ko": "파멸의 대검",
+   "boss": "B10",
+   "slot": "무기",
+   "tier": 2,
+   "rank": 3,
+   "effects": [
+    {
+     "k": "atk_mult_bonus",
+     "v": 0.6,
+     "up": true
+    },
+    {
+     "k": "S",
+     "v": -0.15,
+     "up": false
+    },
+    {
+     "k": "cap_add",
+     "v": 0.01,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [
+    "cap_add"
+   ],
+   "desc_ko": "공격력 ×1.6, 공속 −15%, 보스 타격 상한 +1%p(한계 돌파). +10강 ×2.30.",
+   "pvp_ko": "허용(상한 보너스 무효)"
+  },
+  "I11": {
+   "name_ko": "질풍의 반지",
+   "boss": "B11",
+   "slot": "반지",
+   "tier": 3,
+   "rank": 1,
+   "effects": [
+    {
+     "k": "S",
+     "v": 0.15,
+     "up": true
+    },
+    {
+     "k": "move_bonus",
+     "v": 0.25,
+     "up": false
+    },
+    {
+     "k": "first_hits_fast",
+     "v": 3,
+     "up": false
+    },
+    {
+     "k": "first_hits_mult",
+     "v": 2.0,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "공속 S +0.15, 이동속도 +25%, 전투 시작 첫 3타 간격 절반(선제 러시). +10강 S 0.32.",
+   "pvp_ko": "허용"
+  },
+  "I12": {
+   "name_ko": "폭풍 정령",
+   "boss": "B12",
+   "slot": "정령",
+   "tier": 3,
+   "rank": 3,
+   "effects": [
+    {
+     "k": "S",
+     "v": 0.9,
+     "up": true
+    },
+    {
+     "k": "crit_p_add",
+     "v": -0.1,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "공속 S +0.9(배율 1.56 단독), 치명타 확률 −10%p. 보호막 보스의 답. +10강 S 1.94.",
+   "pvp_ko": "허용"
+  },
+  "I13": {
+   "name_ko": "광풍 망토",
+   "boss": "B13",
+   "slot": "망토",
+   "tier": 3,
+   "rank": 2,
+   "effects": [
+    {
+     "k": "range_add",
+     "v": 7.5,
+     "up": true
+    },
+    {
+     "k": "splash",
+     "v": 0.3,
+     "up": true
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "범위 9→16.5(3마리), 범위 밖 적에게도 피해의 30% 스플래시. +10강 스플래시 50%(상한).",
+   "pvp_ko": "3v3: 스플래시 15%"
+  },
+  "I14": {
+   "name_ko": "행운의 왕관",
+   "boss": "B14",
+   "slot": "왕관",
+   "tier": 3,
+   "rank": 2,
+   "effects": [
+    {
+     "k": "luk_mult_bonus",
+     "v": 0.5,
+     "up": true
+    },
+    {
+     "k": "zone_exp_bonus",
+     "v": 0.5,
+     "up": false
+    },
+    {
+     "k": "exp_mult_bonus",
+     "v": 0.4,
+     "up": true
+    }
+   ],
+   "pvp_disabled": [
+    "zone_exp_bonus",
+    "exp_mult_bonus"
+   ],
+   "desc_ko": "행운 ×1.5(치명·당첨·정수 공식에 적용), 도박 구역 ×2→×2.5, 경험치 ×1.4. +10강 행운 ×2.08.",
+   "pvp_ko": "행운 배율만 허용(회피 ↑)"
+  },
+  "I15": {
+   "name_ko": "질풍검",
+   "boss": "B15",
+   "slot": "무기",
+   "tier": 3,
+   "rank": 2,
+   "effects": [
+    {
+     "k": "atk_mult_bonus",
+     "v": 0.25,
+     "up": true
+    },
+    {
+     "k": "S",
+     "v": 0.3,
+     "up": true
+    },
+    {
+     "k": "var",
+     "v": 0,
+     "up": false,
+     "lo": 0.7,
+     "hi": 1.5
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "공격력 ×1.25, 공속 S +0.3, 피해 분산 0.9~1.1 → 0.7~1.5(평균 +10%, 큰 숫자가 자주 뜬다). +10강 ×1.54.",
+   "pvp_ko": "허용"
+  },
+  "I16": {
+   "name_ko": "군단 파쇄 망토",
+   "boss": "B16",
+   "slot": "망토",
+   "tier": 4,
+   "rank": 4,
+   "effects": [
+    {
+     "k": "range_add",
+     "v": 6.0,
+     "up": true
+    },
+    {
+     "k": "multi_atk_bonus",
+     "v": 0.25,
+     "up": true
+    },
+    {
+     "k": "dmg_reduce",
+     "v": 0.15,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [
+    "multi_atk_bonus"
+   ],
+   "desc_ko": "범위 9→15(3마리), 적이 2마리 이상이면 공격력 +25%, 받는 피해 −15%(군단 갑주, 강화 안 됨 — 1:1 보스에서 용암 망토 +0 대신 껴도 손해가 아니게; 용암 망토는 강화하면 −32%·반격으로 1:1 전용). +10강 범위 +13(상한 18), +54%.",
+   "pvp_ko": "3v3 에서만 의미(피해감소 15% 는 허용)"
+  },
+  "I17": {
+   "name_ko": "피의 성배",
+   "boss": "B17",
+   "slot": "반지",
+   "tier": 4,
+   "rank": 4,
+   "effects": [
+    {
+     "k": "ls",
+     "v": 0.07,
+     "up": true
+    },
+    {
+     "k": "heal_cap_s_add",
+     "v": 0.03,
+     "up": true
+    },
+    {
+     "k": "hp_mult_bonus",
+     "v": -0.05,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [
+    "heal_cap_s_add"
+   ],
+   "desc_ko": "흡혈 +7%p, 초당 회복 상한 기본 5%→8%(유일한 상한 해제 아이템), 최대 체력 −5%(피의 대가). +10강 +15%p / 상한 +6.5%p.",
+   "pvp_ko": "허용(흡혈 상한 30%, 회복 상한 해제 무효)"
+  },
+  "I18": {
+   "name_ko": "군주의 부적",
+   "boss": "B18",
+   "slot": "부적",
+   "tier": 4,
+   "rank": 2,
+   "effects": [
+    {
+     "k": "energy_start",
+     "v": 3,
+     "up": false
+    },
+    {
+     "k": "energy_boss",
+     "v": 1,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [
+    "energy_start",
+    "energy_boss"
+   ],
+   "desc_ko": "시작 에너지 +3, 보스 처치 에너지 +1. 강화 불가(판 길이 자원은 고정).",
+   "pvp_ko": "무효"
+  },
+  "I19": {
+   "name_ko": "영혼 왕관",
+   "boss": "B19",
+   "slot": "왕관",
+   "tier": 4,
+   "rank": 3,
+   "effects": [
+    {
+     "k": "exp_mult_bonus",
+     "v": 0.5,
+     "up": true
+    },
+    {
+     "k": "boss_exp_mult_bonus",
+     "v": 1.0,
+     "up": false
+    }
+   ],
+   "pvp_disabled": [
+    "exp_mult_bonus",
+    "boss_exp_mult_bonus"
+   ],
+   "desc_ko": "경험치 ×1.5, 보스 경험치 추가 ×2(상한 ×2 — 기록용 왕관). +10강 경험치 ×2.08.",
+   "pvp_ko": "무효"
+  },
+  "I20": {
+   "name_ko": "종언의 정령",
+   "boss": "B20",
+   "slot": "정령",
+   "tier": 4,
+   "rank": 4,
+   "effects": [
+    {
+     "k": "S",
+     "v": 0.8,
+     "up": true
+    },
+    {
+     "k": "splash",
+     "v": 0.15,
+     "up": false
+    },
+    {
+     "k": "ls",
+     "v": 0.03,
+     "up": true
+    },
+    {
+     "k": "crit_dmg",
+     "v": 0.3,
+     "up": true
+    }
+   ],
+   "pvp_disabled": [],
+   "desc_ko": "공속 S +0.8, 스플래시 15%, 흡혈 +3%p, 치명타 피해 +0.3. 최종 올라운더. +10강 S 1.73/흡혈 6.5%p/치명 +0.65.",
+   "pvp_ko": "허용"
+  }
+ },
+ "stones": {
+  "upgrade_mult_per_plus": 1.08,
+  "max_plus": 10,
+  "tiers": {
+   "1": "하급 강화석(수정) — 가운데 길 1~5",
+   "2": "중급 강화석(강철) — 가운데 길 6~10",
+   "3": "상급 강화석(질풍) — 질풍 루프",
+   "4": "최상급 강화석(종언) — 군단 루프"
+  },
+  "drop": {
+   "first_kill": 2,
+   "repeat_kill": 1,
+   "repeat_bonus_p": 0.25,
+   "repeat_bonus_n": 1,
+   "no_death_bonus": 1,
+   "text_ko": "보스 첫 처치: 아이템 + 그 급 강화석 2개 + 정수 2개. 재처치: 강화석 1개(25% 로 2개) + 정수 1개(+추가 확률). 그 보스전 무사망이면 강화석 +1. 일반 몬스터는 드롭 없음."
+  },
+  "cost": [
+   1,
+   1,
+   2,
+   2,
+   3,
+   3,
+   4,
+   4,
+   5,
+   5
+  ],
+  "success": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   0.85,
+   0.75,
+   0.65,
+   0.55,
+   0.45
+  ],
+  "pity_fails": 3,
+  "essence_cost": [
+   0,
+   0,
+   0,
+   0,
+   1,
+   1,
+   2,
+   3,
+   4,
+   6
+  ],
+  "essence_drop": {
+   "first_kill": 2,
+   "repeat_kill": 1,
+   "extra_base": 0.1,
+   "extra_luck_coef": 0.3,
+   "text_ko": "정수(보스 고유 ess_Bxx) 추가 1개 확률 = 0.10 + 0.30×r, r = 행운/(행운 + 0.5×레벨 + 50). +5 이상 강화에만 들며 성공 시에만 소모."
+  },
+  "exchange": {
+   "lower_to_upper": 5,
+   "text_ko": "하위 강화석 5개 → 상위 1개(역방향 불가). 하위 급이 +10 뒤 죽은 통화가 되지 않게."
+  },
+  "fail_rule_ko": "실패 시 강화석만 소모, 단계 하락·파괴 없음. 같은 단계 3회 연속 실패 시 다음은 확정 성공(천장, UI '다음은 확정'). 정수는 성공 시에만 소모.",
+  "expected_tries_per_step": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.173,
+   1.312,
+   1.472,
+   1.652,
+   1.853
+  ],
+  "expected_stones_to_plus10": 41.2,
+  "expected_essence_to_plus10": 17,
+  "text_ko": "강화 +p 는 up:true 효과값에 1.08^p (+5 ×1.47, +10 ×2.16). 합산 상한(caps)에 걸리므로 강화가 PvP 를 망가뜨리지 않는다. 강화석·정수 판매 없음."
+ },
+ "builds": {
+  "균형(기본)": {
+   "hp": 1.0,
+   "atk": 2.0,
+   "luk": 0.5,
+   "ls": 0.5
+  },
+  "속공(위험)": {
+   "hp": 1.0,
+   "atk": 2.25,
+   "luk": 0.5,
+   "ls": 0.25
+  },
+  "흡혈 균형": {
+   "hp": 1.0,
+   "atk": 1.75,
+   "luk": 0.5,
+   "ls": 0.75
+  },
+  "탱커": {
+   "hp": 1.5,
+   "atk": 1.5,
+   "luk": 0.5,
+   "ls": 0.5
+  },
+  "행운 도박": {
+   "hp": 1.0,
+   "atk": 1.75,
+   "luk": 1.0,
+   "ls": 0.25
+  }
+ },
+ "monetization": {
+  "pass_energy_bonus": 0,
+  "trial_days": 7,
+  "auto_adventure": {
+   "free_per_day": 3,
+   "pass_per_day": 6,
+   "stone_rate": 0.5,
+   "manual_runs_per_day_assumed": 5,
+   "first_kill": false,
+   "records": false,
+   "speed_free": 2,
+   "speed_pass": 8,
+   "text_ko": "자동 모험: 피버 없음·구역 22%·브레스 회피 35%·조건 보스는 운에 맡김 → 항상 수동보다 손해. 이미 잡은 보스까지만, 강화석·정수 50%, 첫 처치·기록 없음. 무료 3회/일, 패스 6회/일."
+  },
+  "rules_ko": "꾸미기·치장 상품 없음. 확률형 유료 뽑기 없음. 강화석·정수·에너지·강화 보호권·레벨 직접 판매 없음(B의 강화 보호 두루마리 삭제). 결과(레벨·클리어·PvP 전력)를 크게 바꾸지 않는 시간·정보·사회·도전권 상품만. 계정 성장 속도 영향 ≤ ×1.3(시뮬 O표).",
+  "products": [
+   {
+    "id": "pass",
+    "name_ko": "모험 패스 (월 정액)",
+    "price_robux": 399,
+    "trial_ko": "첫 7일 무료 체험 → 8일째 자동 모험 6→3회·배속 8→2 로 축소(상실감이 전환 트리거, 결과 손해 없음)",
+    "effects_ko": [
+     "자동 모험 3→6회/일, 빨리감기 ×8(무료 ×2)",
+     "장비 프리셋 3개(무료 1개) — 제단 앞 교체가 한 번에",
+     "리플레이 30개·공유 카드",
+     "상세 통계(DPS·상한 타격 비율·피버·행운! 횟수)",
+     "에너지 보너스 없음 — B 안의 '시작 에너지 +1' 은 시뮬 H표에서 처치 보스 +0.3 으로 측정되어 삭제"
+    ],
+    "why_no_result_ko": "판의 전투·보상 규칙은 무료와 동일. 자동 모험은 첫 처치 없음·50% → 계정 성장 ≤×1.3(O표). H표가 '+1 에너지를 팔면 어떻게 되는가'를 기록."
+   },
+   {
+    "id": "teleport",
+    "name_ko": "순간이동권 (영구)",
+    "price_robux": 149,
+    "effects_ko": [
+     "마을 ↔ 갈림길 광장 ↔ 루프 입구 순간이동(루프 입출 6초×4 + 마을 문 14초 = 판당 약 40초 절약)",
+     "판 종료 결산 즉시 스킵"
+    ],
+    "why_no_result_ko": "전투·조우·보상 동일. 20보스 판 18분 중 이동 약 2.2분의 일부만 줄인다."
+   },
+   {
+    "id": "record_book",
+    "name_ko": "기록의 책",
+    "price_robux": 99,
+    "effects_ko": [
+     "보스별 최단 처치 기록·빌드 저장",
+     "판 리플레이 공유 코드(시드 기록 → 같은 빌드·시드 = 같은 결과)",
+     "서버 리더보드 등록"
+    ],
+    "why_no_result_ko": "기록·공유만."
+   },
+   {
+    "id": "festival",
+    "name_ko": "축제 깃발 (서버 전체)",
+    "price_robux": 99,
+    "effects_ko": [
+     "구매자 이름 서버 공지 + 10분간 서버 모두의 도박 구역 ×2 → ×2.5, 구역 1곳 추가",
+     "결산·공유 카드·기록판에 '깃발 판' 표식 강제(기록 오염 방지)"
+    ],
+    "why_no_result_ko": "서버 전원 대칭. 레벨 기록 +약 10%(구역 전투 35% × 1.25) 이지만 표식으로 분리."
+   },
+   {
+    "id": "lens",
+    "name_ko": "관찰 렌즈 (영구)",
+    "price_robux": 149,
+    "effects_ko": [
+     "보스 체력바에 페이즈 경계·그로기/브레스/폭주 타이머 표시, 숫자에 '한계!'·'장갑!' 표기",
+     "제단 앞 조건부 보스 조건 표시"
+    ],
+    "why_no_result_ko": "정보 상품. 보스는 결정적이라 숙련자는 외운다."
+   },
+   {
+    "id": "crystal",
+    "name_ko": "예측 수정구",
+    "price_robux": 49,
+    "bundle_ko": "10개",
+    "effects_ko": [
+     "제단 앞 예측 카드: 현재 빌드로 이 보스 '예상 32초·사망 1.1 → 거북 반지면 25초·0.6' (서버가 같은 규칙으로 40회 시뮬)",
+     "자동 모험(시뮬) 추가 실행권. 하루 무료 3회"
+    ],
+    "why_no_result_ko": "정보만. 실제 판은 조우가 랜덤이라 공략 계획 도구."
+   },
+   {
+    "id": "rush_tickets",
+    "name_ko": "보스 러시 도전권 3장",
+    "price_robux": 49,
+    "effects_ko": [
+     "20보스 연속 타임어택(결투 레벨 100,000 고정·장비·강화만, 에너지 없음). 보상 기록 + 강화석(일 상한 30). 무료 1장/일"
+    ],
+    "why_no_result_ko": "PvP 와 같은 축(장비·강화만)에서 경쟁을 미리 학습. 강화석 일 30 = 풀클리어 1판의 약 40%."
+   }
+  ],
+  "free_paths_ko": [
+   "워프 제단: 광장 문 보스 3회 처치로 무료 해금(유료 즉시 해금 없음)",
+   "자동 모험 3회/일",
+   "예측 수정구 3회/일",
+   "보스 러시 1장/일",
+   "리플레이 5개"
+  ]
+ },
+ "pvp": {
+  "duel_level": 100000,
+  "time_limit_s": 60,
+  "dmg_mult": 0.08,
+  "dodge_from_crit": 0.35,
+  "dodge_cap": 0.25,
+  "dodge_floor": 0.1,
+  "fever": false,
+  "first_swing_delay_s": [
+   0.3,
+   0.7
+  ],
+  "points_fixed": true,
+  "heal_per_hit_hp_frac": 0.12,
+  "heal_basis": "geomean",
+  "caps_ref": "caps.pvp",
+  "text_ko": "마을 결투장: 두 플레이어 모두 결투 레벨 100,000 으로 정규화(각자 저장된 분배 비율대로 포인트), 장착 장비·강화만 그대로. 주는 피해 ×0.08, 한 타 ≤ 상대 최대 체력 12%(최소 9타), 공속 ≤2.2, 흡혈 ≤30%(PvE 와 같음 — 20% 로 자르면 흡혈 빌드의 유일한 결투 장점이 사라져 전패했다), 초당 회복 ≤6%, 치명 ≤50%·×3, 피해감소 ≤40%, 반격 ≤10%, 관통 없음, 피버 없음. 회피 = max(10%, 치명 확률 ×0.35) ≤25% (행운 = 결투 방어 스탯, 행운 0 도 하한 10%; 0.5 면 행운이 흡혈을 압도해 흡혈 균형이 전패). 결투 포인트는 레벨 100,000 분량(300,000)으로 고정(행운 당첨 없음 — 당첨은 PvE 전용). 결투 흡혈: 타격당 회복 = 흡혈률 × √(내 최대 체력 × 상대 최대 체력) × 12% (PvE 의 '피해 비례' 회복은 공격형만, '내 체력 비례'는 체력형만 유리해져 승률이 0/100 으로 갈림 — 기하평균이 둘을 중립화, 시뮬 L표로 확인), 초당 ≤6%. 60초 후 체력% 높은 쪽 승. pvp_disabled 효과(경험치·에너지·상한 돌파·부활·보스 경험치) 무효. 3v3 에서 범위 2마리·스플래시 15%."
+ },
+ "boss_rush": {
+  "level": 100000,
+  "death_penalty_s": 10,
+  "daily_stone_cap": 30,
+  "free_tickets_per_day": 1,
+  "text_ko": "보스 러시: 결투 레벨 100,000 고정·장비·강화만, 20보스 연속(조건 무시), 사망 = +10초 페널티·체력 가득 부활, 합계 초 기록. 결투장 공간·UI 재사용."
+ },
+ "hidden_conditions": {
+  "prev_boss_secs_max": "직전 보스를 N초 안에 처치 (피버·그로기·공속의 보상)",
+  "zone_fight_this_stage": "이 구간의 도박 구역에서 전투 1회 승리 (선택이 곧 조건)",
+  "no_death_prev_boss": "직전 보스전 무사망 (숙련)",
+  "all_prev_loop_bosses": "이 루프의 앞 보스 전부 이번 판 처치 (험로 전부)",
+  "text_ko": "조건 미충족 시 제단에 흔적(발자국·시계 소리·거울 파편)만 남고 문이 바로 열린다. 조건은 전부 JSON(bosses[].spawn_condition), 코드에는 판정 함수 1개."
+ },
+ "release_plan_ko": [
+  "1차(2~3주): 가운데 길 10보스·10아이템·1~2급 강화석·정수·패스·피버 OFF(쿨다운 공유만) — 시뮬 I표 성립",
+  "2차: 질풍 루프 5보스(가운데 길 Z 지오메트리 리스킨, 몬스터 재질 변경) + 피버 ON(탭 창 0.5초 실측 뒤 재보정) + 조건부 보스 2(B13·B14)",
+  "3차: 군단 루프 5보스 + 조건부 보스 2(B18·B19) + 거울 기사 코드 재사용한 PvP 결투장 + 보스 러시 + 워프 제단"
+ ],
+ "monsters": {
+  "penguin": {
+   "id": "penguin",
+   "name_ko": "펭귄",
+   "model": "Mount01",
+   "height": 5.5,
+   "route": "main",
+   "stage": 1,
+   "kind_ko": "약",
+   "hp": 30,
+   "atk": 12,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 300
+  },
+  "jelly": {
+   "id": "jelly",
+   "name_ko": "젤리말",
+   "model": "Mount02",
+   "height": 5,
+   "route": "main",
+   "stage": 1,
+   "kind_ko": "중",
+   "hp": 536,
+   "atk": 82.0,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 450
+  },
+  "firewolf": {
+   "id": "firewolf",
+   "name_ko": "불늑대",
+   "model": "Mount03",
+   "height": 6,
+   "route": "main",
+   "stage": 1,
+   "kind_ko": "정예",
+   "hp": 953,
+   "atk": 123,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 750
+  },
+  "deer": {
+   "id": "deer",
+   "name_ko": "은빛 사슴",
+   "model": "Mount04",
+   "height": 7,
+   "route": "main",
+   "stage": 2,
+   "kind_ko": "약",
+   "hp": 3930,
+   "atk": 605,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 1380
+  },
+  "unicorn": {
+   "id": "unicorn",
+   "name_ko": "유니콘",
+   "model": "Mount05",
+   "height": 7,
+   "route": "main",
+   "stage": 2,
+   "kind_ko": "중",
+   "hp": 8320,
+   "atk": 864,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 2070
+  },
+  "icewolf": {
+   "id": "icewolf",
+   "name_ko": "얼음 늑대",
+   "model": "Mount06",
+   "height": 7,
+   "route": "main",
+   "stage": 2,
+   "kind_ko": "정예",
+   "hp": 14800,
+   "atk": 1300,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 3450
+  },
+  "golem": {
+   "id": "golem",
+   "name_ko": "숲 골렘",
+   "model": "Mount08",
+   "height": 9,
+   "route": "main",
+   "stage": 3,
+   "kind_ko": "약",
+   "hp": 19800,
+   "atk": 3020,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 6350
+  },
+  "lavagolem": {
+   "id": "lavagolem",
+   "name_ko": "용암 골렘",
+   "model": "Mount09",
+   "height": 9,
+   "route": "main",
+   "stage": 3,
+   "kind_ko": "중",
+   "hp": 41800,
+   "atk": 4310,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 9520
+  },
+  "hellhound": {
+   "id": "hellhound",
+   "name_ko": "지옥견",
+   "model": "Mount11",
+   "height": 8,
+   "route": "main",
+   "stage": 3,
+   "kind_ko": "정예",
+   "hp": 74400,
+   "atk": 6470,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 15900
+  },
+  "hellboar": {
+   "id": "hellboar",
+   "name_ko": "지옥 군단 멧돼지",
+   "model": "Mount12",
+   "height": 10,
+   "route": "main",
+   "stage": 4,
+   "kind_ko": "약",
+   "hp": 71900,
+   "atk": 11000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 29200
+  },
+  "balrog": {
+   "id": "balrog",
+   "name_ko": "고대 발록",
+   "model": "Mount13",
+   "height": 11,
+   "route": "main",
+   "stage": 4,
+   "kind_ko": "중",
+   "hp": 152000,
+   "atk": 15700,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 43800
+  },
+  "cerberus": {
+   "id": "cerberus",
+   "name_ko": "케르베로스",
+   "model": "Mount14",
+   "height": 10,
+   "route": "main",
+   "stage": 4,
+   "kind_ko": "정예",
+   "hp": 271000,
+   "atk": 23500,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 73000
+  },
+  "giant": {
+   "id": "giant",
+   "name_ko": "에테르 거인",
+   "model": "Mount15",
+   "height": 12,
+   "route": "main",
+   "stage": 5,
+   "kind_ko": "약",
+   "hp": 241000,
+   "atk": 36800,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 134000
+  },
+  "sage": {
+   "id": "sage",
+   "name_ko": "육중한 신선",
+   "model": "Mount16",
+   "height": 12,
+   "route": "main",
+   "stage": 5,
+   "kind_ko": "중",
+   "hp": 511000,
+   "atk": 52600,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 201000
+  },
+  "gumiho": {
+   "id": "gumiho",
+   "name_ko": "에테르 구미호",
+   "model": "Mount17",
+   "height": 11,
+   "route": "main",
+   "stage": 5,
+   "kind_ko": "정예",
+   "hp": 909000,
+   "atk": 78900,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 336000
+  },
+  "steelrhino": {
+   "id": "steelrhino",
+   "name_ko": "강철 코뿔소",
+   "model": "Mount10 재질 변경",
+   "height": 9,
+   "route": "main",
+   "stage": 6,
+   "kind_ko": "약",
+   "hp": 890000,
+   "atk": 136000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 618000
+  },
+  "darkunicorn": {
+   "id": "darkunicorn",
+   "name_ko": "검은 유니콘",
+   "model": "Mount05 재질",
+   "height": 8,
+   "route": "main",
+   "stage": 6,
+   "kind_ko": "중",
+   "hp": 1880000,
+   "atk": 194000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 927000
+  },
+  "stormwolf": {
+   "id": "stormwolf",
+   "name_ko": "폭풍 늑대",
+   "model": "Mount06 재질",
+   "height": 8,
+   "route": "main",
+   "stage": 6,
+   "kind_ko": "정예",
+   "hp": 3350000,
+   "atk": 291000,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 1540000
+  },
+  "crystalgolem": {
+   "id": "crystalgolem",
+   "name_ko": "수정 골렘",
+   "model": "Mount08 재질",
+   "height": 10,
+   "route": "main",
+   "stage": 7,
+   "kind_ko": "약",
+   "hp": 3380000,
+   "atk": 515000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 2840000
+  },
+  "lavaturtle": {
+   "id": "lavaturtle",
+   "name_ko": "화산 거북",
+   "model": "Mount18",
+   "height": 9,
+   "route": "main",
+   "stage": 7,
+   "kind_ko": "중",
+   "hp": 7150000,
+   "atk": 735000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 4260000
+  },
+  "shadowleopard": {
+   "id": "shadowleopard",
+   "name_ko": "그림자 표범",
+   "model": "Mount19",
+   "height": 9,
+   "route": "main",
+   "stage": 7,
+   "kind_ko": "정예",
+   "hp": 12700000,
+   "atk": 1100000,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 7110000
+  },
+  "abyssboar": {
+   "id": "abyssboar",
+   "name_ko": "심연 멧돼지",
+   "model": "Mount12 재질",
+   "height": 11,
+   "route": "main",
+   "stage": 8,
+   "kind_ko": "약",
+   "hp": 11300000,
+   "atk": 1720000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 13100000
+  },
+  "fallenangel": {
+   "id": "fallenangel",
+   "name_ko": "타락 천사상",
+   "model": "Mount20",
+   "height": 12,
+   "route": "main",
+   "stage": 8,
+   "kind_ko": "중",
+   "hp": 23900000,
+   "atk": 2450000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 19600000
+  },
+  "tricerberus": {
+   "id": "tricerberus",
+   "name_ko": "지옥 삼두견",
+   "model": "Mount14 재질",
+   "height": 11,
+   "route": "main",
+   "stage": 8,
+   "kind_ko": "정예",
+   "hp": 42400000,
+   "atk": 3680000,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 32700000
+  },
+  "stargiant": {
+   "id": "stargiant",
+   "name_ko": "별빛 거인",
+   "model": "Mount15 재질",
+   "height": 13,
+   "route": "main",
+   "stage": 9,
+   "kind_ko": "약",
+   "hp": 36700000,
+   "atk": 5590000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 60100000
+  },
+  "dragonkin": {
+   "id": "dragonkin",
+   "name_ko": "고대 용아병",
+   "model": "Mount21",
+   "height": 12,
+   "route": "main",
+   "stage": 9,
+   "kind_ko": "중",
+   "hp": 77700000,
+   "atk": 7990000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 90200000
+  },
+  "goldgumiho": {
+   "id": "goldgumiho",
+   "name_ko": "황금 구미호",
+   "model": "Mount17 재질",
+   "height": 12,
+   "route": "main",
+   "stage": 9,
+   "kind_ko": "정예",
+   "hp": 138000000,
+   "atk": 12000000,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 150000000
+  },
+  "titan": {
+   "id": "titan",
+   "name_ko": "에테르 타이탄",
+   "model": "Mount22",
+   "height": 14,
+   "route": "main",
+   "stage": 10,
+   "kind_ko": "약",
+   "hp": 119000000,
+   "atk": 18100000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 277000000
+  },
+  "voidsage": {
+   "id": "voidsage",
+   "name_ko": "공허 신선",
+   "model": "Mount16 재질",
+   "height": 13,
+   "route": "main",
+   "stage": 10,
+   "kind_ko": "중",
+   "hp": 252000000,
+   "atk": 25900000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 415000000
+  },
+  "doomwolf": {
+   "id": "doomwolf",
+   "name_ko": "종말의 늑대",
+   "model": "Mount03 재질",
+   "height": 12,
+   "route": "main",
+   "stage": 10,
+   "kind_ko": "정예",
+   "hp": 447000000,
+   "atk": 38800000,
+   "interval": 1.1,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 692000000
+  },
+  "galewolf": {
+   "id": "galewolf",
+   "name_ko": "질풍 늑대",
+   "model": "Mount03 재질",
+   "height": 6,
+   "route": "left",
+   "stage": 1,
+   "kind_ko": "약",
+   "hp": 670000,
+   "atk": 159000,
+   "interval": 1.0,
+   "speed": 20,
+   "spawn": "rush",
+   "exp": 37800
+  },
+  "galehorse": {
+   "id": "galehorse",
+   "name_ko": "질풍 말",
+   "model": "Mount02 재질",
+   "height": 6,
+   "route": "left",
+   "stage": 1,
+   "kind_ko": "중",
+   "hp": 1430000,
+   "atk": 230000,
+   "interval": 1.0,
+   "speed": 21,
+   "spawn": "rush",
+   "exp": 56700
+  },
+  "galefalcon": {
+   "id": "galefalcon",
+   "name_ko": "질풍 매",
+   "model": "Mount23",
+   "height": 5,
+   "route": "left",
+   "stage": 1,
+   "kind_ko": "정예",
+   "hp": 2490000,
+   "atk": 319000,
+   "interval": 0.9,
+   "speed": 23,
+   "spawn": "rush",
+   "exp": 94400
+  },
+  "stormhorse": {
+   "id": "stormhorse",
+   "name_ko": "폭풍 말",
+   "model": "Mount04 재질",
+   "height": 7,
+   "route": "left",
+   "stage": 2,
+   "kind_ko": "약",
+   "hp": 745000,
+   "atk": 177000,
+   "interval": 1.0,
+   "speed": 20,
+   "spawn": "rush",
+   "exp": 56700
+  },
+  "stormleopard": {
+   "id": "stormleopard",
+   "name_ko": "폭풍 표범",
+   "model": "Mount19 재질",
+   "height": 8,
+   "route": "left",
+   "stage": 2,
+   "kind_ko": "중",
+   "hp": 1600000,
+   "atk": 256000,
+   "interval": 1.0,
+   "speed": 21,
+   "spawn": "rush",
+   "exp": 85000
+  },
+  "stormfalcon": {
+   "id": "stormfalcon",
+   "name_ko": "폭풍 매",
+   "model": "Mount23 재질",
+   "height": 6,
+   "route": "left",
+   "stage": 2,
+   "kind_ko": "정예",
+   "hp": 2770000,
+   "atk": 355000,
+   "interval": 0.9,
+   "speed": 23,
+   "spawn": "rush",
+   "exp": 142000
+  },
+  "windspirit": {
+   "id": "windspirit",
+   "name_ko": "바람 정령체",
+   "model": "Mount24",
+   "height": 8,
+   "route": "left",
+   "stage": 3,
+   "kind_ko": "약",
+   "hp": 855000,
+   "atk": 204000,
+   "interval": 1.0,
+   "speed": 20,
+   "spawn": "rush",
+   "exp": 85000
+  },
+  "galegumiho": {
+   "id": "galegumiho",
+   "name_ko": "질풍 구미호",
+   "model": "Mount17 재질",
+   "height": 9,
+   "route": "left",
+   "stage": 3,
+   "kind_ko": "중",
+   "hp": 1830000,
+   "atk": 294000,
+   "interval": 1.0,
+   "speed": 21,
+   "spawn": "rush",
+   "exp": 128000
+  },
+  "thunderhound": {
+   "id": "thunderhound",
+   "name_ko": "번개 사냥개",
+   "model": "Mount11 재질",
+   "height": 8,
+   "route": "left",
+   "stage": 3,
+   "kind_ko": "정예",
+   "hp": 3180000,
+   "atk": 407000,
+   "interval": 0.9,
+   "speed": 23,
+   "spawn": "rush",
+   "exp": 213000
+  },
+  "fatecat": {
+   "id": "fatecat",
+   "name_ko": "운명의 고양이",
+   "model": "Mount25",
+   "height": 8,
+   "route": "left",
+   "stage": 4,
+   "kind_ko": "약",
+   "hp": 1010000,
+   "atk": 241000,
+   "interval": 1.0,
+   "speed": 20,
+   "spawn": "rush",
+   "exp": 128000
+  },
+  "fatedeer": {
+   "id": "fatedeer",
+   "name_ko": "운명의 사슴",
+   "model": "Mount04 재질",
+   "height": 9,
+   "route": "left",
+   "stage": 4,
+   "kind_ko": "중",
+   "hp": 2170000,
+   "atk": 348000,
+   "interval": 1.0,
+   "speed": 21,
+   "spawn": "rush",
+   "exp": 191000
+  },
+  "fatefalcon": {
+   "id": "fatefalcon",
+   "name_ko": "운명의 매",
+   "model": "Mount23 재질",
+   "height": 7,
+   "route": "left",
+   "stage": 4,
+   "kind_ko": "정예",
+   "hp": 3760000,
+   "atk": 482000,
+   "interval": 0.9,
+   "speed": 23,
+   "spawn": "rush",
+   "exp": 319000
+  },
+  "knightsteed": {
+   "id": "knightsteed",
+   "name_ko": "기사의 군마",
+   "model": "Mount26",
+   "height": 10,
+   "route": "left",
+   "stage": 5,
+   "kind_ko": "약",
+   "hp": 1290000,
+   "atk": 306000,
+   "interval": 1.0,
+   "speed": 20,
+   "spawn": "rush",
+   "exp": 191000
+  },
+  "galeknight": {
+   "id": "galeknight",
+   "name_ko": "질풍 기사",
+   "model": "Mount21 재질",
+   "height": 11,
+   "route": "left",
+   "stage": 5,
+   "kind_ko": "중",
+   "hp": 2760000,
+   "atk": 442000,
+   "interval": 1.0,
+   "speed": 21,
+   "spawn": "rush",
+   "exp": 287000
+  },
+  "galedragon": {
+   "id": "galedragon",
+   "name_ko": "질풍 비룡",
+   "model": "Mount07 재질",
+   "height": 10,
+   "route": "left",
+   "stage": 5,
+   "kind_ko": "정예",
+   "hp": 4780000,
+   "atk": 612000,
+   "interval": 0.9,
+   "speed": 23,
+   "spawn": "rush",
+   "exp": 478000
+  },
+  "legionboar": {
+   "id": "legionboar",
+   "name_ko": "군단 멧돼지",
+   "model": "Mount12 재질",
+   "height": 7,
+   "route": "right",
+   "stage": 1,
+   "kind_ko": "약",
+   "hp": 683000000,
+   "atk": 64000000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 1710000000
+  },
+  "legionhound": {
+   "id": "legionhound",
+   "name_ko": "군단 사냥개",
+   "model": "Mount11 재질",
+   "height": 7,
+   "route": "right",
+   "stage": 1,
+   "kind_ko": "중",
+   "hp": 1370000000,
+   "atk": 90700000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 2570000000
+  },
+  "legionbrute": {
+   "id": "legionbrute",
+   "name_ko": "군단 거구",
+   "model": "Mount13 재질",
+   "height": 8,
+   "route": "right",
+   "stage": 1,
+   "kind_ko": "정예",
+   "hp": 2390000000,
+   "atk": 128000000,
+   "interval": 1.2,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 4290000000
+  },
+  "bloodhound": {
+   "id": "bloodhound",
+   "name_ko": "피의 사냥개",
+   "model": "Mount14 재질",
+   "height": 9,
+   "route": "right",
+   "stage": 2,
+   "kind_ko": "약",
+   "hp": 2210000000,
+   "atk": 207000000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 7890000000
+  },
+  "bloodbat": {
+   "id": "bloodbat",
+   "name_ko": "피의 박쥐",
+   "model": "Mount27",
+   "height": 7,
+   "route": "right",
+   "stage": 2,
+   "kind_ko": "중",
+   "hp": 4420000000,
+   "atk": 293000000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 11800000000
+  },
+  "bloodknight": {
+   "id": "bloodknight",
+   "name_ko": "피의 기사",
+   "model": "Mount21 재질",
+   "height": 10,
+   "route": "right",
+   "stage": 2,
+   "kind_ko": "정예",
+   "hp": 7730000000,
+   "atk": 414000000,
+   "interval": 1.2,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 19700000000
+  },
+  "lordguard": {
+   "id": "lordguard",
+   "name_ko": "군주 근위병",
+   "model": "Mount13 재질",
+   "height": 11,
+   "route": "right",
+   "stage": 3,
+   "kind_ko": "약",
+   "hp": 7140000000,
+   "atk": 636000000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 36300000000
+  },
+  "lordgolem": {
+   "id": "lordgolem",
+   "name_ko": "군주 골렘",
+   "model": "Mount09 재질",
+   "height": 11,
+   "route": "right",
+   "stage": 3,
+   "kind_ko": "중",
+   "hp": 14300000000,
+   "atk": 901000000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 54400000000
+  },
+  "lordwyvern": {
+   "id": "lordwyvern",
+   "name_ko": "군주 비룡",
+   "model": "Mount07 재질",
+   "height": 11,
+   "route": "right",
+   "stage": 3,
+   "kind_ko": "정예",
+   "hp": 25000000000,
+   "atk": 1270000000,
+   "interval": 1.2,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 90700000000
+  },
+  "soulgiant": {
+   "id": "soulgiant",
+   "name_ko": "영혼 거인",
+   "model": "Mount15 재질",
+   "height": 13,
+   "route": "right",
+   "stage": 4,
+   "kind_ko": "약",
+   "hp": 23100000000,
+   "atk": 2060000000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 167000000000
+  },
+  "soulsage": {
+   "id": "soulsage",
+   "name_ko": "영혼 신선",
+   "model": "Mount16 재질",
+   "height": 12,
+   "route": "right",
+   "stage": 4,
+   "kind_ko": "중",
+   "hp": 46200000000,
+   "atk": 2920000000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 250000000000
+  },
+  "soulgumiho": {
+   "id": "soulgumiho",
+   "name_ko": "영혼 구미호",
+   "model": "Mount17 재질",
+   "height": 12,
+   "route": "right",
+   "stage": 4,
+   "kind_ko": "정예",
+   "hp": 80900000000,
+   "atk": 4120000000,
+   "interval": 1.2,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 417000000000
+  },
+  "endtitan": {
+   "id": "endtitan",
+   "name_ko": "종언 타이탄",
+   "model": "Mount22 재질",
+   "height": 15,
+   "route": "right",
+   "stage": 5,
+   "kind_ko": "약",
+   "hp": 73500000000,
+   "atk": 6550000000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 768000000000
+  },
+  "enddragon": {
+   "id": "enddragon",
+   "name_ko": "종언 용아병",
+   "model": "Mount21 재질",
+   "height": 13,
+   "route": "right",
+   "stage": 5,
+   "kind_ko": "중",
+   "hp": 147000000000,
+   "atk": 9280000000,
+   "interval": 1.3,
+   "speed": 10,
+   "spawn": "rise",
+   "exp": 1150000000000
+  },
+  "endwolf": {
+   "id": "endwolf",
+   "name_ko": "종언 늑대",
+   "model": "Mount03 재질",
+   "height": 13,
+   "route": "right",
+   "stage": 5,
+   "kind_ko": "정예",
+   "hp": 257000000000,
+   "atk": 13100000000,
+   "interval": 1.2,
+   "speed": 19,
+   "spawn": "rush",
+   "exp": 1920000000000
+  }
+ },
+ "bosses": {
+  "B01": {
+   "id": "B01",
+   "name_ko": "수정 매머드",
+   "model": "Mount10 구슬 코뿔소(수정 재질)",
+   "height": 8,
+   "route": "main",
+   "stage": 1,
+   "archetype_ko": "균형",
+   "hp": 16200,
+   "atk": 258,
+   "interval": 2.1,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 3600,
+   "phases": 3,
+   "transition_s": 1.5,
+   "hit_cap": 0.035,
+   "crit_pierce_cap": null,
+   "min_hits": 29,
+   "gimmick": {
+    "stagger": {
+     "every_s": 10,
+     "dur_s": 3,
+     "dmg_mult": 1.5,
+     "cap_mult": 2.0
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "10초마다 돌진 뒤 엄니가 땅에 박혀 3초 그로기(피해 ×1.5, 상한 ×2). 장비 없이도 그로기 3번이면 체력바 1개가 통째로 날아간다. 첫 보스 = 튜토리얼: 체력바·그로기·상한을 몸으로 배운다.",
+   "drop_item": "I01",
+   "stone_tier": 1,
+   "essence_id": "ess_B01",
+   "recommended_level": 154,
+   "target_secs_natural": 26,
+   "atk_factor": 1.0,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 154,
+    "player_atk": 519,
+    "player_hp": 1373,
+    "player_dps_natural": 732,
+    "natural_items": [],
+    "boss_hit_pct_of_player_hp": 18.8,
+    "boss_dps_pct_of_player_hp": 8.9,
+    "fever_uptime_assumed": 0.23,
+    "arrival_level_measured_median": 154,
+    "arrival_level_p10_p90": [
+     118,
+     204
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 26.3,
+    "calibrated_deaths_mean": 0.53,
+    "death_target": 0.35,
+    "atk_calib_mult": 1.25,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.6
+     ],
+     [
+      1.6,
+      1.0
+     ],
+     [
+      2.0,
+      1.35
+     ],
+     [
+      2.5,
+      2.0
+     ],
+     [
+      3.0,
+      2.23
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 4.16
+   }
+  },
+  "B02": {
+   "id": "B02",
+   "name_ko": "화염 와이번",
+   "model": "Mount07",
+   "height": 9,
+   "route": "main",
+   "stage": 2,
+   "archetype_ko": "유리대포",
+   "hp": 93900,
+   "atk": 2370,
+   "interval": 1.9,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 16600,
+   "phases": 3,
+   "transition_s": 1.2,
+   "hit_cap": 0.035,
+   "crit_pierce_cap": null,
+   "min_hits": 29,
+   "gimmick": {
+    "breath": {
+     "every_s": 9,
+     "atk_mult": 2.2,
+     "dodge_p_manual": 0.7,
+     "dodge_p_auto": 0.35
+    },
+    "enrage": {
+     "from_phase": 2,
+     "atk_mult": 1.3,
+     "int_mult": 0.9
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "유리대포: 짧지만 아프다. 9초마다 1.5초 예고 후 화염 브레스(일반 타의 2.2배) — 예고 중 뒤로 걸으면 피함(수동 70%). 2페이즈 분노(공격 ×1.3, 간격 ×0.9). 브레스 직후 다시 붙기, 흡혈·체력 분배가 안정.",
+   "drop_item": "I02",
+   "stone_tier": 1,
+   "essence_id": "ess_B02",
+   "recommended_level": 2081,
+   "target_secs_natural": 18,
+   "atk_factor": 1.25,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 2081,
+    "player_atk": 10227,
+    "player_hp": 19015,
+    "player_dps_natural": 15174,
+    "natural_items": [
+     "I01"
+    ],
+    "boss_hit_pct_of_player_hp": 12.5,
+    "boss_dps_pct_of_player_hp": 6.6,
+    "fever_uptime_assumed": 0.23,
+    "arrival_level_measured_median": 2081,
+    "arrival_level_p10_p90": [
+     1648,
+     2726
+    ],
+    "natural_reach_pass1": 0.97,
+    "calibrated_secs_median": 26.5,
+    "calibrated_deaths_mean": 1.02,
+    "death_target": 0.6,
+    "atk_calib_mult": 1.0,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.3
+     ],
+     [
+      1.0,
+      0.82
+     ],
+     [
+      1.25,
+      1.07
+     ],
+     [
+      1.6,
+      1.88
+     ],
+     [
+      2.0,
+      2.15
+     ],
+     [
+      2.5,
+      3.05
+     ],
+     [
+      3.0,
+      3.23
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 14.16
+   }
+  },
+  "B03": {
+   "id": "B03",
+   "name_ko": "에테르 드래곤",
+   "model": "Mount28(v8 키 14 → 12)",
+   "height": 12,
+   "route": "main",
+   "stage": 3,
+   "archetype_ko": "탱커",
+   "hp": 2040000,
+   "atk": 12300,
+   "interval": 1.9,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 76200,
+   "phases": 3,
+   "transition_s": 1.0,
+   "hit_cap": 0.05,
+   "crit_pierce_cap": null,
+   "min_hits": 20,
+   "gimmick": {
+    "shield_hits": 5
+   },
+   "spawn_condition": null,
+   "guide_ko": "탱커: 길고 무디다. 페이즈마다 에테르 보호막 5타 무효(피해량 무관) → 공속이 정답, 바람 정령이 보호막 벗기는 시간을 5초→3.5초로. 큰 한 방 빌드는 손해.",
+   "drop_item": "I03",
+   "stone_tier": 1,
+   "essence_id": "ess_B03",
+   "recommended_level": 8277,
+   "target_secs_natural": 34,
+   "atk_factor": 0.75,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 8277,
+    "player_atk": 41250,
+    "player_hp": 76465,
+    "player_dps_natural": 90576,
+    "natural_items": [
+     "I01",
+     "I02"
+    ],
+    "boss_hit_pct_of_player_hp": 16.1,
+    "boss_dps_pct_of_player_hp": 8.5,
+    "fever_uptime_assumed": 0.3,
+    "arrival_level_measured_median": 8277,
+    "arrival_level_p10_p90": [
+     6741,
+     10304
+    ],
+    "natural_reach_pass1": 0.97,
+    "calibrated_secs_median": 34.3,
+    "calibrated_deaths_mean": 0.93,
+    "death_target": 0.6,
+    "atk_calib_mult": 1.25,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.95
+     ],
+     [
+      1.6,
+      1.27
+     ],
+     [
+      2.0,
+      2.15
+     ],
+     [
+      2.5,
+      3.08
+     ],
+     [
+      3.0,
+      3.92
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 2.63
+   }
+  },
+  "B04": {
+   "id": "B04",
+   "name_ko": "에테르 그리폰",
+   "model": "Mount29",
+   "height": 14,
+   "route": "main",
+   "stage": 4,
+   "archetype_ko": "균형",
+   "hp": 6330000,
+   "atk": 33300,
+   "interval": 1.9,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 350000,
+   "phases": 3,
+   "transition_s": 1.0,
+   "hit_cap": 0.03,
+   "crit_pierce_cap": null,
+   "min_hits": 34,
+   "gimmick": {
+    "adds": {
+     "phases": [
+      2
+     ],
+     "count": 2,
+     "unit": {
+      "id": "B04_add",
+      "name_ko": "에테르 그리폰의 수하",
+      "hp": 210000,
+      "atk": 18200,
+      "interval": 1.3,
+      "exp": 14600
+     }
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "2페이즈 진입 시 새끼 그리폰 2마리 소환(각자 공격). 범위(거인 망토)면 보스와 새끼를 한 번에 → 소환이 보너스 경험치. 범위 없으면 새끼 처리 동안 보스 공격을 더 맞는다.",
+   "drop_item": "I04",
+   "stone_tier": 1,
+   "essence_id": "ess_B04",
+   "recommended_level": 27997,
+   "target_secs_natural": 26,
+   "atk_factor": 1.0,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 27997,
+    "player_atk": 140251,
+    "player_hp": 259799,
+    "player_dps_natural": 308365,
+    "natural_items": [
+     "I01",
+     "I02",
+     "I03"
+    ],
+    "boss_hit_pct_of_player_hp": 12.8,
+    "boss_dps_pct_of_player_hp": 6.7,
+    "fever_uptime_assumed": 0.3,
+    "arrival_level_measured_median": 27997,
+    "arrival_level_p10_p90": [
+     22668,
+     35096
+    ],
+    "natural_reach_pass1": 0.93,
+    "calibrated_secs_median": 26.3,
+    "calibrated_deaths_mean": 0.57,
+    "death_target": 0.6,
+    "atk_calib_mult": 1.0,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.1
+     ],
+     [
+      1.0,
+      0.75
+     ],
+     [
+      1.25,
+      1.0
+     ],
+     [
+      1.6,
+      1.0
+     ],
+     [
+      2.0,
+      1.85
+     ],
+     [
+      2.5,
+      2.08
+     ],
+     [
+      3.0,
+      2.5
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 2.88
+   }
+  },
+  "B05": {
+   "id": "B05",
+   "name_ko": "청색의 드래곤",
+   "model": "Mount30",
+   "height": 16,
+   "route": "main",
+   "stage": 5,
+   "archetype_ko": "유리대포",
+   "hp": 15200000,
+   "atk": 352000,
+   "interval": 1.9,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 1610000,
+   "phases": 4,
+   "transition_s": 1.2,
+   "hit_cap": 0.035,
+   "crit_pierce_cap": null,
+   "min_hits": 29,
+   "gimmick": {
+    "frenzy": {
+     "int_min": 1.1,
+     "over_s": 40
+    },
+    "stagger_on_phase_s": 2.0
+   },
+   "spawn_condition": null,
+   "guide_ko": "광란: 공격 간격이 30초에 걸쳐 1.9→1.1초로(DPS 체크). 체력바가 깨질 때마다 2초 그로기. 빨리 깨면 쉬운 보스, 끌면 지옥. 5단계 문 = 에테르 왕관 + 질풍 루프 입구.",
+   "drop_item": "I05",
+   "stone_tier": 1,
+   "essence_id": "ess_B05",
+   "recommended_level": 94078,
+   "target_secs_natural": 20,
+   "atk_factor": 1.25,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 94078,
+    "player_atk": 472253,
+    "player_hp": 874618,
+    "player_dps_natural": 1038800,
+    "natural_items": [
+     "I01",
+     "I02",
+     "I03",
+     "I04"
+    ],
+    "boss_hit_pct_of_player_hp": 40.2,
+    "boss_dps_pct_of_player_hp": 21.2,
+    "fever_uptime_assumed": 0.3,
+    "arrival_level_measured_median": 94078,
+    "arrival_level_p10_p90": [
+     76610,
+     117502
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 20.0,
+    "calibrated_deaths_mean": 0.4,
+    "death_target": 0.6,
+    "atk_calib_mult": 1.414,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.03
+     ],
+     [
+      1.6,
+      0.95
+     ],
+     [
+      2.0,
+      2.1
+     ],
+     [
+      2.5,
+      3.0
+     ],
+     [
+      3.0,
+      3.05
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 4.04
+   }
+  },
+  "B06": {
+   "id": "B06",
+   "name_ko": "강철 기간테스",
+   "model": "Mount13 재질(강철)",
+   "height": 15,
+   "route": "main",
+   "stage": 6,
+   "archetype_ko": "탱커",
+   "hp": 154000000,
+   "atk": 792000,
+   "interval": 2.0,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 7410000,
+   "phases": 3,
+   "transition_s": 1.0,
+   "hit_cap": 0.03,
+   "crit_pierce_cap": null,
+   "min_hits": 34,
+   "gimmick": {
+    "thorns_frac": 0.02,
+    "enrage": {
+     "from_phase": 3,
+     "atk_mult": 1.4
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "가시 갑주: 때릴 때마다 내 최대 체력 2% 피해 → 공속 몰빵의 천적, 큼직한 치명타(광전사 반지, 관통 ×2)가 유리. 3페이즈 분노 ×1.4.",
+   "drop_item": "I06",
+   "stone_tier": 2,
+   "essence_id": "ess_B06",
+   "recommended_level": 429652,
+   "target_secs_natural": 36,
+   "atk_factor": 0.75,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 429652,
+    "player_atk": 2158698,
+    "player_hp": 3997664,
+    "player_dps_natural": 4749240,
+    "natural_items": [
+     "I01",
+     "I02",
+     "I03",
+     "I04",
+     "I05"
+    ],
+    "boss_hit_pct_of_player_hp": 19.8,
+    "boss_dps_pct_of_player_hp": 9.9,
+    "fever_uptime_assumed": 0.3,
+    "arrival_level_measured_median": 429652,
+    "arrival_level_p10_p90": [
+     340551,
+     493482
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 35.0,
+    "calibrated_deaths_mean": 1.0,
+    "death_target": 0.6,
+    "atk_calib_mult": 1.6,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.0
+     ],
+     [
+      1.6,
+      0.97
+     ],
+     [
+      2.0,
+      1.95
+     ],
+     [
+      2.5,
+      2.7
+     ],
+     [
+      3.0,
+      3.48
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 1.82
+   }
+  },
+  "B07": {
+   "id": "B07",
+   "name_ko": "용암 군주",
+   "model": "Mount09 재질(용암, 크게)",
+   "height": 13,
+   "route": "main",
+   "stage": 7,
+   "archetype_ko": "균형",
+   "hp": 362000000,
+   "atk": 3780000,
+   "interval": 1.9,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 34100000,
+   "phases": 3,
+   "transition_s": 1.0,
+   "hit_cap": 0.03,
+   "crit_pierce_cap": null,
+   "min_hits": 34,
+   "gimmick": {
+    "regen_per_s": 0.008,
+    "timer": {
+     "at_s": 56,
+     "atk_mult": 2.5
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "매초 최대 체력 0.8% 재생 + 56초(목표 초의 2배) 뒤 폭주(공격 ×2.5). 순수 DPS 체크. 장비 없으면 재생이 DPS 의 1/3을 먹는다.",
+   "drop_item": "I07",
+   "stone_tier": 2,
+   "essence_id": "ess_B07",
+   "recommended_level": 1424021,
+   "target_secs_natural": 28,
+   "atk_factor": 1.0,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 1424021,
+    "player_atk": 7156258,
+    "player_hp": 13252404,
+    "player_dps_natural": 17738732,
+    "natural_items": [
+     "I01",
+     "I02",
+     "I06",
+     "I03",
+     "I04",
+     "I05"
+    ],
+    "boss_hit_pct_of_player_hp": 28.5,
+    "boss_dps_pct_of_player_hp": 15.0,
+    "fever_uptime_assumed": 0.3,
+    "arrival_level_measured_median": 1424021,
+    "arrival_level_p10_p90": [
+     1054198,
+     1674755
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 28.0,
+    "calibrated_deaths_mean": 0.95,
+    "death_target": 0.6,
+    "atk_calib_mult": 1.6,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.0
+     ],
+     [
+      1.6,
+      0.95
+     ],
+     [
+      2.0,
+      1.95
+     ],
+     [
+      2.5,
+      2.9
+     ],
+     [
+      3.0,
+      3.52
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 2.57
+   }
+  },
+  "B08": {
+   "id": "B08",
+   "name_ko": "뇌전 와이번",
+   "model": "Mount07 재질(번개)",
+   "height": 10,
+   "route": "main",
+   "stage": 8,
+   "archetype_ko": "유리대포",
+   "hp": 772000000,
+   "atk": 15400000,
+   "interval": 1.8,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 157000000,
+   "phases": 3,
+   "transition_s": 1.4,
+   "hit_cap": 0.03,
+   "crit_pierce_cap": null,
+   "min_hits": 34,
+   "gimmick": {
+    "curse_noncrit_mult": 0.7,
+    "stagger_on_phase_s": 2.5,
+    "enrage": {
+     "from_phase": 3,
+     "int_mult": 0.8
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "정전기 갑옷: 치명타가 아닌 타격은 70% 피해. 행운·광전사 반지·번개 정령(5타마다 확정 치명)의 가치. 페이즈 전환 시 2.5초 감전 그로기.",
+   "drop_item": "I08",
+   "stone_tier": 2,
+   "essence_id": "ess_B08",
+   "recommended_level": 4331787,
+   "target_secs_natural": 21,
+   "atk_factor": 1.25,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 4331787,
+    "player_atk": 21770265,
+    "player_hp": 40315380,
+    "player_dps_natural": 53964325,
+    "natural_items": [
+     "I01",
+     "I02",
+     "I06",
+     "I03",
+     "I07",
+     "I05"
+    ],
+    "boss_hit_pct_of_player_hp": 38.2,
+    "boss_dps_pct_of_player_hp": 21.2,
+    "fever_uptime_assumed": 0.3,
+    "arrival_level_measured_median": 4331787,
+    "arrival_level_p10_p90": [
+     3495213,
+     5332384
+    ],
+    "natural_reach_pass1": 0.98,
+    "calibrated_secs_median": 22.0,
+    "calibrated_deaths_mean": 0.62,
+    "death_target": 0.6,
+    "atk_calib_mult": 1.414,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.3
+     ],
+     [
+      1.6,
+      1.25
+     ],
+     [
+      2.0,
+      2.12
+     ],
+     [
+      2.5,
+      2.67
+     ],
+     [
+      3.0,
+      3.0
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 3.67
+   }
+  },
+  "B09": {
+   "id": "B09",
+   "name_ko": "심연의 수호자",
+   "model": "Mount20 재질(심연)",
+   "height": 14,
+   "route": "main",
+   "stage": 9,
+   "archetype_ko": "탱커",
+   "hp": 4000000000,
+   "atk": 22600000,
+   "interval": 1.8,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 722000000,
+   "phases": 4,
+   "transition_s": 1.0,
+   "hit_cap": 0.03,
+   "crit_pierce_cap": 1.2,
+   "min_hits": 34,
+   "gimmick": {
+    "boss_lifesteal": 0.35,
+    "player_ls_mult": 0.5
+   },
+   "spawn_condition": null,
+   "guide_ko": "장갑 3%(최소 34타) + 치명 관통 ×1.2 제한 → 행운의 천적, 공속의 놀이터. 심연의 계약: 보스가 준 피해의 35%를 회복하고 내 흡혈은 절반 → 체력·피해감소(용암 망토)로 갈아탄다.",
+   "drop_item": "I09",
+   "stone_tier": 2,
+   "essence_id": "ess_B09",
+   "recommended_level": 14260199,
+   "target_secs_natural": 36,
+   "atk_factor": 0.75,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 14260199,
+    "player_atk": 71668458,
+    "player_hp": 132719442,
+    "player_dps_natural": 184275491,
+    "natural_items": [
+     "I01",
+     "I08",
+     "I06",
+     "I03",
+     "I07",
+     "I05"
+    ],
+    "boss_hit_pct_of_player_hp": 17.0,
+    "boss_dps_pct_of_player_hp": 9.5,
+    "fever_uptime_assumed": 0.31,
+    "arrival_level_measured_median": 14260199,
+    "arrival_level_p10_p90": [
+     11572164,
+     16469641
+    ],
+    "natural_reach_pass1": 0.92,
+    "calibrated_secs_median": 38.6,
+    "calibrated_deaths_mean": 0.15,
+    "death_target": 0.6,
+    "atk_calib_mult": 1.118,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      1.0
+     ],
+     [
+      1.6,
+      1.95
+     ],
+     [
+      2.0,
+      2.7
+     ],
+     [
+      2.5,
+      3.7
+     ],
+     [
+      3.0,
+      4.22
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 2.33
+   }
+  },
+  "B10": {
+   "id": "B10",
+   "name_ko": "에테르 황제 드래곤",
+   "model": "Mount30 재질(황금, 크게)",
+   "height": 20,
+   "route": "main",
+   "stage": 10,
+   "archetype_ko": "균형(최종)",
+   "hp": 20500000000,
+   "atk": 146000000,
+   "interval": 1.9,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 3320000000,
+   "phases": 5,
+   "transition_s": 1.2,
+   "hit_cap": 0.04,
+   "crit_pierce_cap": null,
+   "min_hits": 25,
+   "gimmick": {
+    "breath": {
+     "every_s": 10,
+     "atk_mult": 2.2,
+     "dodge_p_manual": 0.7,
+     "dodge_p_auto": 0.35
+    },
+    "adds": {
+     "phases": [
+      3
+     ],
+     "count": 2,
+     "unit": {
+      "id": "B10_add",
+      "name_ko": "에테르 황제 드래곤의 수하",
+      "hp": 460000000,
+      "atk": 34000000,
+      "interval": 1.3,
+      "exp": 138000000
+     }
+    },
+    "enrage": {
+     "from_phase": 5,
+     "atk_mult": 1.5,
+     "int_mult": 0.85
+    },
+    "stagger_on_phase_s": 1.5
+   },
+   "spawn_condition": null,
+   "guide_ko": "가운데 길 최종. 체력바 5개, 상한 4%(최소 25타). 브레스 10초, 3페이즈 용아병 2마리, 5페이즈 분노. 전환마다 1.5초 그로기. 처치 = 군단 루프 입구.",
+   "drop_item": "I10",
+   "stone_tier": 2,
+   "essence_id": "ess_B10",
+   "recommended_level": 45723424,
+   "target_secs_natural": 36,
+   "atk_factor": 1.0,
+   "energy_reward": 4,
+   "anchor": {
+    "player_lvl": 45723424,
+    "player_atk": 229795373,
+    "player_hp": 425547062,
+    "player_dps_natural": 590855188,
+    "natural_items": [
+     "I01",
+     "I08",
+     "I06",
+     "I03",
+     "I07",
+     "I05",
+     "I09"
+    ],
+    "boss_hit_pct_of_player_hp": 34.3,
+    "boss_dps_pct_of_player_hp": 18.1,
+    "fever_uptime_assumed": 0.31,
+    "arrival_level_measured_median": 45723424,
+    "arrival_level_p10_p90": [
+     36936957,
+     59014092
+    ],
+    "natural_reach_pass1": 0.98,
+    "calibrated_secs_median": 35.9,
+    "calibrated_deaths_mean": 0.85,
+    "death_target": 0.6,
+    "atk_calib_mult": 1.6,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.17
+     ],
+     [
+      1.6,
+      0.68
+     ],
+     [
+      2.0,
+      1.57
+     ],
+     [
+      2.5,
+      2.62
+     ],
+     [
+      3.0,
+      3.62
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 1.46
+   }
+  },
+  "B11": {
+   "id": "B11",
+   "name_ko": "질풍 표범",
+   "model": "Mount19 재질(바람)",
+   "height": 9,
+   "route": "left",
+   "stage": 1,
+   "archetype_ko": "균형",
+   "hp": 45800000,
+   "atk": 365000,
+   "interval": 1.5,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 302000,
+   "phases": 3,
+   "transition_s": 0.8,
+   "hit_cap": 0.03,
+   "crit_pierce_cap": null,
+   "min_hits": 34,
+   "gimmick": {
+    "frenzy": {
+     "int_min": 0.9,
+     "over_s": 30
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "30초에 걸쳐 공격 간격 1.5→0.9초. 빨리 잡지 않으면 초당 피해 1.7배. 질풍 루프 입문: 선제 러시(첫 3타 가속)의 가치.",
+   "drop_item": "I11",
+   "stone_tier": 3,
+   "essence_id": "ess_B11",
+   "recommended_level": 199382,
+   "target_secs_natural": 24,
+   "atk_factor": 1.0,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 199382,
+    "player_atk": 1001435,
+    "player_hp": 1854586,
+    "player_dps_natural": 2203076,
+    "natural_items": [
+     "I01",
+     "I02",
+     "I03",
+     "I04",
+     "I05"
+    ],
+    "boss_hit_pct_of_player_hp": 19.7,
+    "boss_dps_pct_of_player_hp": 13.1,
+    "fever_uptime_assumed": 0.3,
+    "arrival_level_measured_median": 199382,
+    "arrival_level_p10_p90": [
+     175586,
+     229621
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 24.1,
+    "calibrated_deaths_mean": 0.68,
+    "death_target": 0.5,
+    "atk_calib_mult": 1.25,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.7
+     ],
+     [
+      1.6,
+      1.55
+     ],
+     [
+      2.0,
+      2.27
+     ],
+     [
+      2.5,
+      2.98
+     ],
+     [
+      3.0,
+      3.95
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 2.84
+   }
+  },
+  "B12": {
+   "id": "B12",
+   "name_ko": "폭풍 와이번",
+   "model": "Mount07 재질(폭풍)",
+   "height": 11,
+   "route": "left",
+   "stage": 2,
+   "archetype_ko": "유리대포",
+   "hp": 20100000,
+   "atk": 388000,
+   "interval": 1.6,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 453000,
+   "phases": 3,
+   "transition_s": 0.8,
+   "hit_cap": 0.04,
+   "crit_pierce_cap": null,
+   "min_hits": 25,
+   "gimmick": {
+    "shield_hits": 4,
+    "breath": {
+     "every_s": 7,
+     "atk_mult": 1.8,
+     "dodge_p_manual": 0.7,
+     "dodge_p_auto": 0.35
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "페이즈마다 폭풍 보호막 4타 + 7초마다 돌풍 브레스(×1.8). 공속이 모든 것. 25초 안에 잡으면 다음 구간에 회오리 정령왕이 깨어난다.",
+   "drop_item": "I12",
+   "stone_tier": 3,
+   "essence_id": "ess_B12",
+   "recommended_level": 221888,
+   "target_secs_natural": 17,
+   "atk_factor": 1.25,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 221888,
+    "player_atk": 1114540,
+    "player_hp": 2064038,
+    "player_dps_natural": 2586099,
+    "natural_items": [
+     "I01",
+     "I02",
+     "I03",
+     "I11",
+     "I04",
+     "I05"
+    ],
+    "boss_hit_pct_of_player_hp": 18.8,
+    "boss_dps_pct_of_player_hp": 11.7,
+    "fever_uptime_assumed": 0.31,
+    "arrival_level_measured_median": 221888,
+    "arrival_level_p10_p90": [
+     202488,
+     254066
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 21.3,
+    "calibrated_deaths_mean": 0.88,
+    "death_target": 0.5,
+    "atk_calib_mult": 1.25,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.05
+     ],
+     [
+      1.25,
+      0.53
+     ],
+     [
+      1.6,
+      1.02
+     ],
+     [
+      2.0,
+      1.75
+     ],
+     [
+      2.5,
+      2.23
+     ],
+     [
+      3.0,
+      3.0
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 7.21
+   }
+  },
+  "B13": {
+   "id": "B13",
+   "name_ko": "회오리 정령왕",
+   "model": "Mount24 재질(크게)",
+   "height": 12,
+   "route": "left",
+   "stage": 3,
+   "archetype_ko": "탱커",
+   "hp": 99700000,
+   "atk": 569000,
+   "interval": 1.6,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 680000,
+   "phases": 3,
+   "transition_s": 1.0,
+   "hit_cap": 0.03,
+   "crit_pierce_cap": null,
+   "min_hits": 34,
+   "gimmick": {
+    "adds": {
+     "phases": [
+      1,
+      3
+     ],
+     "count": 2,
+     "unit": {
+      "id": "B13_add",
+      "name_ko": "회오리 정령왕의 수하",
+      "hp": 1520000,
+      "atk": 188000,
+      "interval": 1.0,
+      "exp": 34000
+     }
+    }
+   },
+   "spawn_condition": {
+    "type": "prev_boss_secs_max",
+    "value": 25,
+    "text_ko": "직전 보스(폭풍 와이번)를 25초 안에 처치"
+   },
+   "guide_ko": "조건부(폭풍 와이번 25초 컷). 장갑 3% + 시작과 3페이즈에 바람 정령체 2마리씩 → 범위·스플래시 없으면 6마리 상대. 무사망으로 잡으면 다음 구간에 운명의 구미호가 나타난다. 광풍 망토의 관문.",
+   "drop_item": "I13",
+   "stone_tier": 3,
+   "essence_id": "ess_B13",
+   "recommended_level": 252515,
+   "target_secs_natural": 36,
+   "atk_factor": 0.75,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 252515,
+    "player_atk": 1268459,
+    "player_hp": 2349073,
+    "player_dps_natural": 2957923,
+    "natural_items": [
+     "I01",
+     "I12",
+     "I03",
+     "I11",
+     "I04",
+     "I05"
+    ],
+    "boss_hit_pct_of_player_hp": 24.2,
+    "boss_dps_pct_of_player_hp": 15.1,
+    "fever_uptime_assumed": 0.33,
+    "arrival_level_measured_median": 252515,
+    "arrival_level_p10_p90": [
+     229918,
+     282935
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 35.8,
+    "calibrated_deaths_mean": 0.97,
+    "death_target": 0.3,
+    "atk_calib_mult": 1.414,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.0
+     ],
+     [
+      1.6,
+      1.55
+     ],
+     [
+      2.0,
+      3.0
+     ],
+     [
+      2.5,
+      4.0
+     ],
+     [
+      3.0,
+      5.17
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 1.65
+   }
+  },
+  "B14": {
+   "id": "B14",
+   "name_ko": "운명의 구미호",
+   "model": "Mount17 재질(은빛)",
+   "height": 11,
+   "route": "left",
+   "stage": 4,
+   "archetype_ko": "균형",
+   "hp": 51800000,
+   "atk": 553000,
+   "interval": 1.6,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 1020000,
+   "phases": 4,
+   "transition_s": 0.8,
+   "hit_cap": 0.04,
+   "crit_pierce_cap": null,
+   "min_hits": 25,
+   "gimmick": {
+    "curse_noncrit_mult": 0.65,
+    "boss_lifesteal": 0.25
+   },
+   "spawn_condition": {
+    "type": "no_death_prev_boss",
+    "text_ko": "직전 보스(회오리 정령왕) 전투 무사망"
+   },
+   "guide_ko": "조건부(회오리 정령왕 무사망). 운명의 저주: 치명타 아닌 타격 65%, 보스는 준 피해의 25% 회복. 행운·확정 치명이 없으면 체력 레이스에서 밀린다. 행운의 왕관의 관문.",
+   "drop_item": "I14",
+   "stone_tier": 3,
+   "essence_id": "ess_B14",
+   "recommended_level": 295722,
+   "target_secs_natural": 28,
+   "atk_factor": 1.0,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 295722,
+    "player_atk": 1485602,
+    "player_hp": 2751189,
+    "player_dps_natural": 3464327,
+    "natural_items": [
+     "I01",
+     "I12",
+     "I03",
+     "I11",
+     "I13",
+     "I05"
+    ],
+    "boss_hit_pct_of_player_hp": 20.1,
+    "boss_dps_pct_of_player_hp": 12.6,
+    "fever_uptime_assumed": 0.33,
+    "arrival_level_measured_median": 295722,
+    "arrival_level_p10_p90": [
+     260344,
+     341816
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 28.5,
+    "calibrated_deaths_mean": 0.15,
+    "death_target": 0.5,
+    "atk_calib_mult": 1.118,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.95
+     ],
+     [
+      1.6,
+      2.0
+     ],
+     [
+      2.0,
+      2.9
+     ],
+     [
+      2.5,
+      4.12
+     ],
+     [
+      3.0,
+      4.42
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 3.73
+   }
+  },
+  "B15": {
+   "id": "B15",
+   "name_ko": "질풍의 거울 기사",
+   "model": "Mount21 재질(은갑, 거울)",
+   "height": 13,
+   "route": "left",
+   "stage": 5,
+   "archetype_ko": "균형",
+   "hp": 0,
+   "atk": 0,
+   "interval": 1.6,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 1530000,
+   "phases": 4,
+   "transition_s": 0.8,
+   "hit_cap": 0.05,
+   "crit_pierce_cap": null,
+   "min_hits": 20,
+   "gimmick": {
+    "mirror": {
+     "T": 52.6,
+     "dps_k": 0.1273,
+     "dodge_from_crit": 0.6,
+     "dodge_cap": 0.3
+    },
+    "thorns_frac": 0.01
+   },
+   "spawn_condition": null,
+   "guide_ko": "거울 기사 = 내 레벨의 '장비 없는' 복사(체력 = 맨몸 DPS×T, 한 타 = 맨몸 체력의 9%/초 × 간격, 내 치명 확률×0.6 만큼 회피(≤30%)). 장비·강화만이 차이 = PvP 예습. 가시 1%.",
+   "drop_item": "I15",
+   "stone_tier": 3,
+   "essence_id": "ess_B15",
+   "recommended_level": 377548,
+   "target_secs_natural": 26,
+   "atk_factor": 1.0,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 377548,
+    "player_atk": 1981873,
+    "player_hp": 3670211,
+    "player_dps_natural": 4870579,
+    "natural_items": [
+     "I01",
+     "I12",
+     "I03",
+     "I11",
+     "I13",
+     "I14"
+    ],
+    "boss_hit_pct_of_player_hp": null,
+    "boss_dps_pct_of_player_hp": 0.0,
+    "fever_uptime_assumed": 0.33,
+    "arrival_level_measured_median": 377548,
+    "arrival_level_p10_p90": [
+     319247,
+     424339
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 26.4,
+    "calibrated_deaths_mean": 0.68,
+    "death_target": 0.5,
+    "atk_calib_mult": 1.414,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.05
+     ],
+     [
+      1.6,
+      0.97
+     ],
+     [
+      2.0,
+      1.77
+     ],
+     [
+      2.5,
+      2.45
+     ],
+     [
+      3.0,
+      3.42
+     ]
+    ]
+   }
+  },
+  "B16": {
+   "id": "B16",
+   "name_ko": "군단장 멧돼지왕",
+   "model": "Mount12 재질(황금, 크게)",
+   "height": 13,
+   "route": "right",
+   "stage": 1,
+   "archetype_ko": "균형",
+   "hp": 56500000000,
+   "atk": 571000000,
+   "interval": 1.8,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 13700000000,
+   "phases": 3,
+   "transition_s": 1.2,
+   "hit_cap": 0.035,
+   "crit_pierce_cap": null,
+   "min_hits": 29,
+   "gimmick": {
+    "adds": {
+     "phases": [
+      1,
+      2,
+      3
+     ],
+     "count": 3,
+     "unit": {
+      "id": "B16_add",
+      "name_ko": "군단장 멧돼지왕의 수하",
+      "hp": 912000000,
+      "atk": 85500000,
+      "interval": 1.3,
+      "exp": 514000000
+     }
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "페이즈마다 군단 멧돼지 3마리. 항상 4마리 상대. 범위 3마리 + 스플래시로 '군단을 갈아 경험치로' — 군단 파쇄 망토의 관문.",
+   "drop_item": "I16",
+   "stone_tier": 4,
+   "essence_id": "ess_B16",
+   "recommended_level": 146595044,
+   "target_secs_natural": 26,
+   "atk_factor": 1.0,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 146595044,
+    "player_atk": 912303926,
+    "player_hp": 1425474960,
+    "player_dps_natural": 2306288974,
+    "natural_items": [
+     "I10",
+     "I12",
+     "I06",
+     "I03",
+     "I07",
+     "I14",
+     "I09"
+    ],
+    "boss_hit_pct_of_player_hp": 40.1,
+    "boss_dps_pct_of_player_hp": 22.3,
+    "fever_uptime_assumed": 0.31,
+    "arrival_level_measured_median": 146595044,
+    "arrival_level_p10_p90": [
+     122576506,
+     214794166
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 26.3,
+    "calibrated_deaths_mean": 1.0,
+    "death_target": 0.5,
+    "atk_calib_mult": 1.414,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.2
+     ],
+     [
+      1.6,
+      1.23
+     ],
+     [
+      2.0,
+      2.08
+     ],
+     [
+      2.5,
+      2.95
+     ],
+     [
+      3.0,
+      3.1
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 2.1
+   }
+  },
+  "B17": {
+   "id": "B17",
+   "name_ko": "피의 케르베로스",
+   "model": "Mount14 재질(붉은, 크게)",
+   "height": 14,
+   "route": "right",
+   "stage": 2,
+   "archetype_ko": "탱커",
+   "hp": 148000000000,
+   "atk": 757000000,
+   "interval": 1.7,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 63100000000,
+   "phases": 3,
+   "transition_s": 1.0,
+   "hit_cap": 0.045,
+   "crit_pierce_cap": null,
+   "min_hits": 23,
+   "gimmick": {
+    "boss_lifesteal": 0.5,
+    "player_ls_mult": 0.5,
+    "enrage": {
+     "from_phase": 2,
+     "atk_mult": 1.3
+    }
+   },
+   "spawn_condition": null,
+   "guide_ko": "피의 계약: 보스 흡혈 50%, 내 흡혈 절반, 2페이즈 분노. 체력 레이스. 피의 성배의 관문.",
+   "drop_item": "I17",
+   "stone_tier": 4,
+   "essence_id": "ess_B17",
+   "recommended_level": 535834432,
+   "target_secs_natural": 39,
+   "atk_factor": 0.75,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 535834432,
+    "player_atk": 3334651888,
+    "player_hp": 5210393650,
+    "player_dps_natural": 8429943280,
+    "natural_items": [
+     "I10",
+     "I12",
+     "I06",
+     "I03",
+     "I16",
+     "I14",
+     "I09"
+    ],
+    "boss_hit_pct_of_player_hp": 14.5,
+    "boss_dps_pct_of_player_hp": 8.5,
+    "fever_uptime_assumed": 0.31,
+    "arrival_level_measured_median": 535834432,
+    "arrival_level_p10_p90": [
+     402705810,
+     676572064
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 39.6,
+    "calibrated_deaths_mean": 0.45,
+    "death_target": 0.5,
+    "atk_calib_mult": 1.6,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.0
+     ],
+     [
+      1.6,
+      0.93
+     ],
+     [
+      2.0,
+      1.32
+     ],
+     [
+      2.5,
+      2.1
+     ],
+     [
+      3.0,
+      3.0
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 2.93
+   }
+  },
+  "B18": {
+   "id": "B18",
+   "name_ko": "군주 발록",
+   "model": "Mount13 재질(검은 금, 크게)",
+   "height": 16,
+   "route": "right",
+   "stage": 3,
+   "archetype_ko": "균형",
+   "hp": 426000000000,
+   "atk": 4850000000,
+   "interval": 1.8,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 290000000000,
+   "phases": 4,
+   "transition_s": 1.0,
+   "hit_cap": 0.045,
+   "crit_pierce_cap": null,
+   "min_hits": 23,
+   "gimmick": {
+    "regen_per_s": 0.01,
+    "timer": {
+     "at_s": 60,
+     "atk_mult": 3.0
+    },
+    "shield_hits": 4
+   },
+   "spawn_condition": {
+    "type": "zone_fight_this_stage",
+    "text_ko": "이 구간의 도박 구역 안에서 전투 1회 승리"
+   },
+   "guide_ko": "조건부(이 구간 도박 구역에서 전투 승리 — 군주는 도박꾼만 만난다). 재생 1%/초 + 보호막 4타 + 60초 폭주 ×3. DPS 체크의 완성형. 군주의 부적(에너지 +3/+1)의 관문.",
+   "drop_item": "I18",
+   "stone_tier": 4,
+   "essence_id": "ess_B18",
+   "recommended_level": 1945582328,
+   "target_secs_natural": 30,
+   "atk_factor": 1.0,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 1945582328,
+    "player_atk": 12107915207,
+    "player_hp": 17972686706,
+    "player_dps_natural": 30608602940,
+    "natural_items": [
+     "I10",
+     "I12",
+     "I17",
+     "I06",
+     "I16",
+     "I14",
+     "I09"
+    ],
+    "boss_hit_pct_of_player_hp": 27.0,
+    "boss_dps_pct_of_player_hp": 15.0,
+    "fever_uptime_assumed": 0.31,
+    "arrival_level_measured_median": 1945582328,
+    "arrival_level_p10_p90": [
+     1547216711,
+     2447490576
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 31.1,
+    "calibrated_deaths_mean": 0.4,
+    "death_target": 0.5,
+    "atk_calib_mult": 1.6,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.0
+     ],
+     [
+      1.6,
+      0.33
+     ],
+     [
+      2.0,
+      1.23
+     ],
+     [
+      2.5,
+      2.12
+     ],
+     [
+      3.0,
+      2.95
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 3.69
+   }
+  },
+  "B19": {
+   "id": "B19",
+   "name_ko": "영혼의 거인왕",
+   "model": "Mount15 재질(투명, 크게)",
+   "height": 18,
+   "route": "right",
+   "stage": 4,
+   "archetype_ko": "탱커",
+   "hp": 3640000000000,
+   "atk": 17200000000,
+   "interval": 2.0,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 1330000000000,
+   "phases": 4,
+   "transition_s": 1.0,
+   "hit_cap": 0.04,
+   "crit_pierce_cap": null,
+   "min_hits": 25,
+   "gimmick": {
+    "stagger": {
+     "every_s": 12,
+     "dur_s": 3,
+     "dmg_mult": 1.5,
+     "cap_mult": 2.0
+    },
+    "thorns_frac": 0.02
+   },
+   "spawn_condition": {
+    "type": "all_prev_loop_bosses",
+    "text_ko": "군단 루프 앞 3보스(B16~B18) 이번 판 전부 처치"
+   },
+   "guide_ko": "조건부(군단 루프 앞 3보스 이번 판 전부 처치). 12초마다 3초 그로기(상한 ×2) + 가시 2%. 그로기 창에 한 방을 몰아넣는 리듬 보스. 영혼 왕관의 관문.",
+   "drop_item": "I19",
+   "stone_tier": 4,
+   "essence_id": "ess_B19",
+   "recommended_level": 5463879957,
+   "target_secs_natural": 44,
+   "atk_factor": 0.75,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 5463879957,
+    "player_atk": 34003284687,
+    "player_hp": 50473625779,
+    "player_dps_natural": 85959722479,
+    "natural_items": [
+     "I10",
+     "I12",
+     "I17",
+     "I06",
+     "I16",
+     "I14",
+     "I18"
+    ],
+    "boss_hit_pct_of_player_hp": 34.1,
+    "boss_dps_pct_of_player_hp": 17.0,
+    "fever_uptime_assumed": 0.31,
+    "arrival_level_measured_median": 5463879957,
+    "arrival_level_p10_p90": [
+     4241151387,
+     7126690910
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 44.1,
+    "calibrated_deaths_mean": 0.95,
+    "death_target": 0.35,
+    "atk_calib_mult": 2.236,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.0
+     ],
+     [
+      1.6,
+      0.0
+     ],
+     [
+      2.0,
+      0.05
+     ],
+     [
+      2.5,
+      1.4
+     ],
+     [
+      3.0,
+      2.9
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 1.21
+   }
+  },
+  "B20": {
+   "id": "B20",
+   "name_ko": "종언의 청룡",
+   "model": "Mount30 재질(검은 청색, 최대 크기)",
+   "height": 24,
+   "route": "right",
+   "stage": 5,
+   "archetype_ko": "균형(최종)",
+   "hp": 9280000000000,
+   "atk": 39400000000,
+   "interval": 1.9,
+   "speed": 9,
+   "spawn": "rise",
+   "exp": 6140000000000,
+   "phases": 5,
+   "transition_s": 1.2,
+   "hit_cap": 0.035,
+   "crit_pierce_cap": null,
+   "min_hits": 29,
+   "gimmick": {
+    "breath": {
+     "every_s": 8,
+     "atk_mult": 2.2,
+     "dodge_p_manual": 0.7,
+     "dodge_p_auto": 0.35
+    },
+    "adds": {
+     "phases": [
+      2,
+      4
+     ],
+     "count": 2,
+     "unit": {
+      "id": "B20_add",
+      "name_ko": "종언의 청룡의 수하",
+      "hp": 166000000000,
+      "atk": 13200000000,
+      "interval": 1.3,
+      "exp": 307000000000
+     }
+    },
+    "enrage": {
+     "from_phase": 5,
+     "atk_mult": 1.5,
+     "int_mult": 0.8
+    },
+    "frenzy": {
+     "int_min": 1.3,
+     "over_s": 40
+    },
+    "timer": {
+     "at_s": 80,
+     "atk_mult": 2.0
+    },
+    "stagger_on_phase_s": 1.5
+   },
+   "spawn_condition": null,
+   "guide_ko": "최종 보스. 체력바 5개·상한 3.5%(최소 29타)·브레스 8초·소환 2회·광란·5페이즈 분노·80초 폭주. 종언의 정령의 관문. 풀장비+강화에서 25~35초의 '처형'이 목표.",
+   "drop_item": "I20",
+   "stone_tier": 4,
+   "essence_id": "ess_B20",
+   "recommended_level": 18609869530,
+   "target_secs_natural": 40,
+   "atk_factor": 1.0,
+   "energy_reward": 5,
+   "anchor": {
+    "player_lvl": 18609869530,
+    "player_atk": 110848852104,
+    "player_hp": 164541264913,
+    "player_dps_natural": 260999570081,
+    "natural_items": [
+     "I10",
+     "I12",
+     "I17",
+     "I06",
+     "I16",
+     "I19",
+     "I18"
+    ],
+    "boss_hit_pct_of_player_hp": 23.9,
+    "boss_dps_pct_of_player_hp": 12.6,
+    "fever_uptime_assumed": 0.31,
+    "arrival_level_measured_median": 18609869530,
+    "arrival_level_p10_p90": [
+     15344538025,
+     23379732707
+    ],
+    "natural_reach_pass1": 1.0,
+    "calibrated_secs_median": 40.1,
+    "calibrated_deaths_mean": 0.53,
+    "death_target": 0.5,
+    "atk_calib_mult": 1.6,
+    "death_curve": [
+     [
+      0.5,
+      0.0
+     ],
+     [
+      0.65,
+      0.0
+     ],
+     [
+      0.8,
+      0.0
+     ],
+     [
+      1.0,
+      0.0
+     ],
+     [
+      1.25,
+      0.1
+     ],
+     [
+      1.6,
+      0.53
+     ],
+     [
+      2.0,
+      1.12
+     ],
+     [
+      2.5,
+      1.98
+     ],
+     [
+      3.0,
+      3.0
+     ]
+    ],
+    "natural_hit_pct_of_boss_hp": 1.55
+   }
+  }
+ },
+ "routes": {
+  "main": {
+   "id": "main",
+   "name_ko": "가운데 길 (에테르 평원 → 황제의 둥지)",
+   "desc_ko": "10구간 10보스. 구간당 4전투(1구간은 인트로 3 + 1). 한 판 풀클리어가 '숙련 목표'(8~10분).",
+   "unlock_ko": "항상",
+   "group_probs": [
+    35,
+    45,
+    20
+   ],
+   "intro_fights": 3,
+   "enter_s": 0,
+   "stages": [
+    {
+     "stage": 1,
+     "name_ko": "1구간",
+     "z_from": -120,
+     "z_to": -385,
+     "length": 265,
+     "fights": 4,
+     "monsters": [
+      "penguin",
+      "jelly",
+      "firewolf"
+     ],
+     "monster_weights": [
+      60,
+      35,
+      5
+     ],
+     "boss": "B01",
+     "base_exp": 300,
+     "luck_zones": 3,
+     "group_probs": [
+      100,
+      0,
+      0
+     ],
+     "anchor_levels": {
+      "enter": 1,
+      "after_first_fight": 89,
+      "at_boss": 154,
+      "after_boss": 485,
+      "natural_exp_mult": 1.0
+     }
+    },
+    {
+     "stage": 2,
+     "name_ko": "2구간",
+     "z_from": -385,
+     "z_to": -655,
+     "length": 270,
+     "fights": 4,
+     "monsters": [
+      "deer",
+      "unicorn",
+      "icewolf"
+     ],
+     "monster_weights": [
+      45,
+      35,
+      20
+     ],
+     "boss": "B02",
+     "base_exp": 1380,
+     "luck_zones": 2,
+     "group_probs": [
+      35,
+      45,
+      20
+     ],
+     "anchor_levels": {
+      "enter": 524,
+      "after_first_fight": 955,
+      "at_boss": 2081,
+      "after_boss": 3208,
+      "natural_exp_mult": 1.0
+     }
+    },
+    {
+     "stage": 3,
+     "name_ko": "3구간",
+     "z_from": -655,
+     "z_to": -935,
+     "length": 280,
+     "fights": 4,
+     "monsters": [
+      "golem",
+      "lavagolem",
+      "hellhound"
+     ],
+     "monster_weights": [
+      45,
+      35,
+      20
+     ],
+     "boss": "B03",
+     "base_exp": 6350,
+     "luck_zones": 3,
+     "group_probs": [
+      35,
+      45,
+      20
+     ],
+     "anchor_levels": {
+      "enter": 3235,
+      "after_first_fight": 4683,
+      "at_boss": 8277,
+      "after_boss": 11979,
+      "natural_exp_mult": 1.0
+     }
+    },
+    {
+     "stage": 4,
+     "name_ko": "4구간",
+     "z_from": -935,
+     "z_to": -1215,
+     "length": 280,
+     "fights": 4,
+     "monsters": [
+      "hellboar",
+      "balrog",
+      "cerberus"
+     ],
+     "monster_weights": [
+      45,
+      35,
+      20
+     ],
+     "boss": "B04",
+     "base_exp": 29200,
+     "luck_zones": 2,
+     "group_probs": [
+      35,
+      45,
+      20
+     ],
+     "anchor_levels": {
+      "enter": 12190,
+      "after_first_fight": 16916,
+      "at_boss": 27997,
+      "after_boss": 40053,
+      "natural_exp_mult": 1.0
+     }
+    },
+    {
+     "stage": 5,
+     "name_ko": "5구간",
+     "z_from": -1215,
+     "z_to": -1505,
+     "length": 290,
+     "fights": 4,
+     "monsters": [
+      "giant",
+      "sage",
+      "gumiho"
+     ],
+     "monster_weights": [
+      45,
+      35,
+      20
+     ],
+     "boss": "B05",
+     "base_exp": 134000,
+     "luck_zones": 3,
+     "group_probs": [
+      35,
+      45,
+      20
+     ],
+     "anchor_levels": {
+      "enter": 41286,
+      "after_first_fight": 56606,
+      "at_boss": 94078,
+      "after_boss": 132947,
+      "natural_exp_mult": 1.0
+     }
+    },
+    {
+     "stage": 6,
+     "name_ko": "6구간",
+     "z_from": -1505,
+     "z_to": -1805,
+     "length": 300,
+     "fights": 4,
+     "monsters": [
+      "steelrhino",
+      "darkunicorn",
+      "stormwolf"
+     ],
+     "monster_weights": [
+      45,
+      35,
+      20
+     ],
+     "boss": "B06",
+     "base_exp": 618000,
+     "luck_zones": 2,
+     "group_probs": [
+      35,
+      45,
+      20
+     ],
+     "anchor_levels": {
+      "enter": 135510,
+      "after_first_fight": 208389,
+      "at_boss": 429652,
+      "after_boss": 600464,
+      "natural_exp_mult": 1.5
+     }
+    },
+    {
+     "stage": 7,
+     "name_ko": "7구간",
+     "z_from": -1805,
+     "z_to": -2105,
+     "length": 300,
+     "fights": 4,
+     "monsters": [
+      "crystalgolem",
+      "lavaturtle",
+      "shadowleopard"
+     ],
+     "monster_weights": [
+      45,
+      35,
+      20
+     ],
+     "boss": "B07",
+     "base_exp": 2840000,
+     "luck_zones": 3,
+     "group_probs": [
+      35,
+      45,
+      20
+     ],
+     "anchor_levels": {
+      "enter": 568078,
+      "after_first_fight": 790246,
+      "at_boss": 1424021,
+      "after_boss": 1973715,
+      "natural_exp_mult": 1.5
+     }
+    },
+    {
+     "stage": 8,
+     "name_ko": "8구간",
+     "z_from": -2105,
+     "z_to": -2415,
+     "length": 310,
+     "fights": 4,
+     "monsters": [
+      "abyssboar",
+      "fallenangel",
+      "tricerberus"
+     ],
+     "monster_weights": [
+      45,
+      35,
+      20
+     ],
+     "boss": "B08",
+     "base_exp": 13100000,
+     "luck_zones": 2,
+     "group_probs": [
+      35,
+      45,
+      20
+     ],
+     "anchor_levels": {
+      "enter": 1925821,
+      "after_first_fight": 2636513,
+      "at_boss": 4331787,
+      "after_boss": 6137921,
+      "natural_exp_mult": 1.5
+     }
+    },
+    {
+     "stage": 9,
+     "name_ko": "9구간",
+     "z_from": -2415,
+     "z_to": -2735,
+     "length": 320,
+     "fights": 4,
+     "monsters": [
+      "stargiant",
+      "dragonkin",
+      "goldgumiho"
+     ],
+     "monster_weights": [
+      45,
+      35,
+      20
+     ],
+     "boss": "B09",
+     "base_exp": 60100000,
+     "luck_zones": 3,
+     "group_probs": [
+      35,
+      45,
+      20
+     ],
+     "anchor_levels": {
+      "enter": 6292971,
+      "after_first_fight": 8586232,
+      "at_boss": 14260199,
+      "after_boss": 20076431,
+      "natural_exp_mult": 1.5
+     }
+    },
+    {
+     "stage": 10,
+     "name_ko": "10구간",
+     "z_from": -2735,
+     "z_to": -3065,
+     "length": 330,
+     "fights": 4,
+     "monsters": [
+      "titan",
+      "voidsage",
+      "doomwolf"
+     ],
+     "monster_weights": [
+      45,
+      35,
+      20
+     ],
+     "boss": "B10",
+     "base_exp": 277000000,
+     "luck_zones": 2,
+     "group_probs": [
+      35,
+      45,
+      20
+     ],
+     "anchor_levels": {
+      "enter": 20398849,
+      "after_first_fight": 27812805,
+      "at_boss": 45723424,
+      "after_boss": 64569408,
+      "natural_exp_mult": 1.5
+     }
+    }
+   ]
+  },
+  "left": {
+   "id": "left",
+   "name_ko": "질풍 루프 (5단계 광장 왼쪽 험로)",
+   "desc_ko": "5구간 × (2전투 + 보스), 300 stud 루프 → 광장 복귀. 모두 달려오는 빠른 적, 레벨은 조금만 오르고(가운데 6단계의 절반) 보상은 아이템·3급 강화석·에너지(+3/구간). 공속·행운·범위의 길. 조건부 보스 2.",
+   "unlock_ko": "청색의 드래곤(B05)을 이번 판에 처치 → 5단계 광장 왼쭉 문. 입구 표지판 '권장: 가운데 길 아이템 5개'",
+   "group_probs": [
+    25,
+    45,
+    30
+   ],
+   "intro_fights": 0,
+   "enter_s": 6,
+   "stages": [
+    {
+     "stage": 1,
+     "name_ko": "1구간",
+     "z_from": -120,
+     "z_to": -280,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "galewolf",
+      "galehorse",
+      "galefalcon"
+     ],
+     "monster_weights": [
+      40,
+      35,
+      25
+     ],
+     "boss": "B11",
+     "base_exp": 37800,
+     "luck_zones": 3,
+     "group_probs": [
+      25,
+      45,
+      30
+     ],
+     "anchor_levels": {
+      "enter": 185394,
+      "after_first_fight": 190439,
+      "at_boss": 199382,
+      "after_boss": 208556,
+      "natural_exp_mult": 1.5
+     }
+    },
+    {
+     "stage": 2,
+     "name_ko": "2구간",
+     "z_from": -280,
+     "z_to": -440,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "stormhorse",
+      "stormleopard",
+      "stormfalcon"
+     ],
+     "monster_weights": [
+      40,
+      35,
+      25
+     ],
+     "boss": "B12",
+     "base_exp": 56700,
+     "luck_zones": 2,
+     "group_probs": [
+      25,
+      45,
+      30
+     ],
+     "anchor_levels": {
+      "enter": 204672,
+      "after_first_fight": 212010,
+      "at_boss": 221888,
+      "after_boss": 235190,
+      "natural_exp_mult": 1.5
+     }
+    },
+    {
+     "stage": 3,
+     "name_ko": "3구간",
+     "z_from": -440,
+     "z_to": -600,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "windspirit",
+      "galegumiho",
+      "thunderhound"
+     ],
+     "monster_weights": [
+      40,
+      35,
+      25
+     ],
+     "boss": "B13",
+     "base_exp": 85000,
+     "luck_zones": 3,
+     "group_probs": [
+      25,
+      45,
+      30
+     ],
+     "anchor_levels": {
+      "enter": 232622,
+      "after_first_fight": 243201,
+      "at_boss": 252515,
+      "after_boss": 271683,
+      "natural_exp_mult": 1.5
+     }
+    },
+    {
+     "stage": 4,
+     "name_ko": "4구간",
+     "z_from": -600,
+     "z_to": -760,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "fatecat",
+      "fatedeer",
+      "fatefalcon"
+     ],
+     "monster_weights": [
+      40,
+      35,
+      25
+     ],
+     "boss": "B14",
+     "base_exp": 128000,
+     "luck_zones": 2,
+     "group_probs": [
+      25,
+      45,
+      30
+     ],
+     "anchor_levels": {
+      "enter": 272789,
+      "after_first_fight": 287899,
+      "at_boss": 295722,
+      "after_boss": 323083,
+      "natural_exp_mult": 1.5
+     }
+    },
+    {
+     "stage": 5,
+     "name_ko": "5구간",
+     "z_from": -760,
+     "z_to": -920,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "knightsteed",
+      "galeknight",
+      "galedragon"
+     ],
+     "monster_weights": [
+      40,
+      35,
+      25
+     ],
+     "boss": "B15",
+     "base_exp": 191000,
+     "luck_zones": 3,
+     "group_probs": [
+      25,
+      45,
+      30
+     ],
+     "anchor_levels": {
+      "enter": 329955,
+      "after_first_fight": 349924,
+      "at_boss": 377548,
+      "after_boss": 413146,
+      "natural_exp_mult": 1.4
+     }
+    }
+   ],
+   "entry_after_main_stage": 5,
+   "loop_length_stud": 920,
+   "sign_recommended_level_factor": 0.8,
+   "sign_recommended_level": 148315,
+   "sign_ko": "입구 표지판: '권장 레벨 148,315 이상 · 아이템 5개' (A 안의 권장 레벨 = 진입 기대 레벨 × 0.8)"
+  },
+  "right": {
+   "id": "right",
+   "name_ko": "군단 루프 (10단계 광장 오른쪽 험로)",
+   "desc_ko": "5구간 × (2전투 + 보스). 항상 떼(2~3마리). 11~15단계에 해당하는 레벨 폭발(구간당 ×3.2). 범위·흡혈·에너지의 길, 최종 보스. 조건부 보스 2.",
+   "unlock_ko": "에테르 황제 드래곤(B10)을 이번 판에 처치 → 10단계 광장 오른쪽 문",
+   "group_probs": [
+    0,
+    30,
+    70
+   ],
+   "intro_fights": 0,
+   "enter_s": 6,
+   "stages": [
+    {
+     "stage": 1,
+     "name_ko": "1구간",
+     "z_from": -120,
+     "z_to": -280,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "legionboar",
+      "legionhound",
+      "legionbrute"
+     ],
+     "monster_weights": [
+      35,
+      35,
+      30
+     ],
+     "boss": "B16",
+     "base_exp": 1710000000,
+     "luck_zones": 3,
+     "group_probs": [
+      0,
+      30,
+      70
+     ],
+     "anchor_levels": {
+      "enter": 62594405,
+      "after_first_fight": 109729767,
+      "at_boss": 146595044,
+      "after_boss": 198147593,
+      "natural_exp_mult": 1.4
+     }
+    },
+    {
+     "stage": 2,
+     "name_ko": "2구간",
+     "z_from": -280,
+     "z_to": -440,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "bloodhound",
+      "bloodbat",
+      "bloodknight"
+     ],
+     "monster_weights": [
+      35,
+      35,
+      30
+     ],
+     "boss": "B17",
+     "base_exp": 7890000000,
+     "luck_zones": 2,
+     "group_probs": [
+      0,
+      30,
+      70
+     ],
+     "anchor_levels": {
+      "enter": 202426543,
+      "after_first_fight": 354894427,
+      "at_boss": 535834432,
+      "after_boss": 697782285,
+      "natural_exp_mult": 1.4
+     }
+    },
+    {
+     "stage": 3,
+     "name_ko": "3구간",
+     "z_from": -440,
+     "z_to": -600,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "lordguard",
+      "lordgolem",
+      "lordwyvern"
+     ],
+     "monster_weights": [
+      35,
+      35,
+      30
+     ],
+     "boss": "B18",
+     "base_exp": 36300000000,
+     "luck_zones": 3,
+     "group_probs": [
+      0,
+      30,
+      70
+     ],
+     "anchor_levels": {
+      "enter": 654933950,
+      "after_first_fight": 1148071934,
+      "at_boss": 1945582328,
+      "after_boss": 2453767421,
+      "natural_exp_mult": 1.4
+     }
+    },
+    {
+     "stage": 4,
+     "name_ko": "4구간",
+     "z_from": -600,
+     "z_to": -760,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "soulgiant",
+      "soulsage",
+      "soulgumiho"
+     ],
+     "monster_weights": [
+      35,
+      35,
+      30
+     ],
+     "boss": "B19",
+     "base_exp": 167000000000,
+     "luck_zones": 2,
+     "group_probs": [
+      0,
+      30,
+      70
+     ],
+     "anchor_levels": {
+      "enter": 2118079282,
+      "after_first_fight": 3713210701,
+      "at_boss": 5463879957,
+      "after_boss": 7162820268,
+      "natural_exp_mult": 1.4
+     }
+    },
+    {
+     "stage": 5,
+     "name_ko": "5구간",
+     "z_from": -760,
+     "z_to": -920,
+     "length": 160,
+     "fights": 2,
+     "monsters": [
+      "endtitan",
+      "enddragon",
+      "endwolf"
+     ],
+     "monster_weights": [
+      35,
+      35,
+      30
+     ],
+     "boss": "B20",
+     "base_exp": 768000000000,
+     "luck_zones": 3,
+     "group_probs": [
+      0,
+      30,
+      70
+     ],
+     "anchor_levels": {
+      "enter": 6845811670,
+      "after_first_fight": 12346587558,
+      "at_boss": 18609869530,
+      "after_boss": 29851006616,
+      "natural_exp_mult": 1.5
+     }
+    }
+   ],
+   "entry_after_main_stage": 10,
+   "loop_length_stud": 920,
+   "sign_recommended_level_factor": 0.8,
+   "sign_recommended_level": 50075524,
+   "sign_ko": "입구 표지판: '권장 레벨 50,075,524 이상 · 아이템 10개' (A 안의 권장 레벨 = 진입 기대 레벨 × 0.8)"
+  }
+ },
+ "design_anchors_note_ko": "몬스터 체력 = hp_k × (구간 첫 전투 직후 기대 공격력), 공격력 = atk_k × (같은 시점 기대 최대 체력). 보스 체력 = 자연 장비 기대 DPS(피버 가동률 포함) × 목표 초(성향 배율 적용) × (1 − 전환 초/목표 초), 공격력 = dps_k × 간격 × 도착 기대 체력 × 성향 공격 배율. 기대값은 경험치 곡선 + 자연 장비(이전 보스 아이템 자동 장착) + 균형 분배로 계산. 질풍 루프는 가운데 5구간 뒤 경험치에서, 군단 루프는 10구간 뒤 경험치에서 이어진다. 마지막으로 앵커 플레이어로 보스전을 40회 시뮬해 중간 전투 시간이 목표 초가 되도록 보스 체력(거울 기사는 T)을 보정했다(calibrated_secs_median).",
+ "gen_params": {
+  "R_MAIN": 4.6,
+  "MAIN_BASE0": 300,
+  "BOSS_EXP_MULT": {
+   "main": 12.0,
+   "loop": 8.0
+  },
+  "LEFT_SHARE": 0.5,
+  "LEFT_G": 1.5,
+  "LEFT_BASE": [
+   37800,
+   56700,
+   85000,
+   128000,
+   191000
+  ],
+  "RIGHT_BASE": [
+   1710000000,
+   7890000000,
+   36300000000,
+   167000000000,
+   768000000000
+  ],
+  "KIND": {
+   "main": [
+    {
+     "hp_k": 0.85,
+     "atk_k": 0.07,
+     "interval": 1.3,
+     "speed": 10,
+     "spawn": "rise",
+     "exp_m": 1.0
+    },
+    {
+     "hp_k": 1.8,
+     "atk_k": 0.1,
+     "interval": 1.3,
+     "speed": 10,
+     "spawn": "rise",
+     "exp_m": 1.5
+    },
+    {
+     "hp_k": 3.2,
+     "atk_k": 0.15,
+     "interval": 1.1,
+     "speed": 19,
+     "spawn": "rush",
+     "exp_m": 2.5
+    }
+   ],
+   "left": [
+    {
+     "hp_k": 0.7,
+     "atk_k": 0.09,
+     "interval": 1.0,
+     "speed": 20,
+     "spawn": "rush",
+     "exp_m": 1.0
+    },
+    {
+     "hp_k": 1.5,
+     "atk_k": 0.13,
+     "interval": 1.0,
+     "speed": 21,
+     "spawn": "rush",
+     "exp_m": 1.5
+    },
+    {
+     "hp_k": 2.6,
+     "atk_k": 0.18,
+     "interval": 0.9,
+     "speed": 23,
+     "spawn": "rush",
+     "exp_m": 2.5
+    }
+   ],
+   "right": [
+    {
+     "hp_k": 1.0,
+     "atk_k": 0.06,
+     "interval": 1.3,
+     "speed": 10,
+     "spawn": "rise",
+     "exp_m": 1.0
+    },
+    {
+     "hp_k": 2.0,
+     "atk_k": 0.085,
+     "interval": 1.3,
+     "speed": 10,
+     "spawn": "rise",
+     "exp_m": 1.5
+    },
+    {
+     "hp_k": 3.5,
+     "atk_k": 0.12,
+     "interval": 1.2,
+     "speed": 19,
+     "spawn": "rush",
+     "exp_m": 2.5
+    }
+   ]
+  },
+  "WEIGHTS": {
+   "main": [
+    45,
+    35,
+    20
+   ],
+   "left": [
+    40,
+    35,
+    25
+   ],
+   "right": [
+    35,
+    35,
+    30
+   ]
+  },
+  "GROUP": {
+   "main": [
+    35,
+    45,
+    20
+   ],
+   "left": [
+    25,
+    45,
+    30
+   ],
+   "right": [
+    0,
+    30,
+    70
+   ]
+  },
+  "ARCH": {
+   "균형": {
+    "T_mult": 1.0,
+    "atk_factor": 1.0
+   },
+   "탱커": {
+    "T_mult": 1.3,
+    "atk_factor": 0.75
+   },
+   "유리대포": {
+    "T_mult": 0.7,
+    "atk_factor": 1.25
+   },
+   "균형(최종)": {
+    "T_mult": 1.0,
+    "atk_factor": 1.0
+   }
+  },
+  "DPS_K_SCALE": 0.75,
+  "STAGE_LEN": {
+   "main": [
+    265,
+    270,
+    280,
+    280,
+    290,
+    300,
+    300,
+    310,
+    320,
+    330
+   ],
+   "left": [
+    160,
+    160,
+    160,
+    160,
+    160
+   ],
+   "right": [
+    160,
+    160,
+    160,
+    160,
+    160
+   ]
+  },
+  "FIGHTS": {
+   "main": 4,
+   "left": 2,
+   "right": 2
+  }
+ }
+}
