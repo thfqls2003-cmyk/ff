@@ -67,7 +67,9 @@ for bid, b in cfg["bosses"].items():
     row = [l for l in body.splitlines() if l.startswith(f"| {bid} | ")]
     need(len(row) == 1, f"{bid} 6.2 표 행")
     if row:
-        need(f"| {big(b['exp'])} | {big(b['recommended_level'])} | {b['target_secs_natural']} |" in row[0], f"{bid} 6.2 경험치/권장/목표")
+        need(f"| {big(b['exp'])} | {big(b['recommended_level'])} | {b['target_secs_natural']}" in row[0], f"{bid} 6.2 경험치/권장/목표")
+        need(f"| {b['min_hits']} / {b['min_hits_floor']} |" in row[0], f"{bid} 6.2 최소 타수")
+        need(f"| {pct(b['hit_cap'],1)} |" in row[0], f"{bid} 6.2 장갑")
 
 # 몬스터 표
 for mid, mo in cfg["monsters"].items():
@@ -107,11 +109,23 @@ checks = {
     f"R = min({F['range']['cap']}, {F['range']['base']} + 장비)": "범위 식",
     f"p = min({pct(F['luck_bonus']['p_cap'])}, {F['luck_bonus']['p_coef']}×행운/(행운 + {F['luck_bonus']['lvl_coef']}×레벨 + {F['luck_bonus']['c']}))": "행운! 식",
     f"한 타 ≤ 최대 체력 {pct(F['damage_taken']['player_hit_cap'])}": "받는 한 타 상한",
-    f"시작 {R['energy_start']}, 전투 −{R['energy_fight']}": "에너지",
+    f"시작 에너지 {R['energy_start']}, 보유 상한 {R['energy_max']}, 전투 승리 −{R['energy_fight']}": "에너지",
     f"가운데 보스 +{R['energy_boss_main']}, 루프 보스 +{R['energy_boss_loop']}": "보스 에너지",
     f"{C['fever_hits']}콤보 = 피버 {C['fever_dur_s']:.0f}초(공속 ×{C['fever_aspd']})": "피버",
     f"탭 성공률 {pct(C['manual_combo_p'])}": "탭 성공률",
-    f"1칸 = {R['encounter']['stud_per_bar']} stud": "조우 게이지",
+    f"±{R['encounter']['jitter_stud']} stud": "조우 고정 트리거 지터",
+    f"보유 상한 {R['energy_max']}": "에너지 상한",
+    f"×{C['revive_invuln_boss_dmg_mult']}": "부활 무적 중 보스 피해",
+    f"{pct(cfg['caps']['pvp']['dmg_reduce'])}": "PvP 피해감소 상한",
+    f"{C['zones_per_stage']}곳": "구역 수",
+    f"{pct(C['zone_use_p_manual'])}": "구역 사용률",
+    f"{cfg['gen_params']['NAT_CAP_RATIO']}×장갑": "장갑 제약 비율",
+    f"{cfg['gen_params']['FLOOR_SECS']:.0f}초": "장갑 제약 하한 초",
+    f"재처치 ×{R['warp']['repeat_stone_mult']}": "워프 강화석 배율",
+    f"일 {R['warp']['daily_limit']}회": "워프 일 제한",
+    f"{cfg['pvp']['heal_off_after_s']}초": "PvP 회복 종료",
+    "## 한눈에 보기": "한눈에 보기 섹션",
+    "## 17. 비평 반영 기록": "비평 반영 기록 섹션",
     f"레벨 1당 포인트 {st['pts_per_level']}": "포인트",
     f"| 체력 | {st['hp']['base']} | +{st['hp']['per_pt']} | {st['hp']['auto_ratio']} |": "체력 스탯",
     f"| 힘 | {st['atk']['base']} | +{st['atk']['per_pt']} | {st['atk']['auto_ratio']} |": "힘 스탯",
@@ -128,7 +142,7 @@ for name, r_ in cfg["builds"].items():
 for s_, msg in checks.items():
     need(s_ in body, f"{msg} 문자열 없음: {s_}")
 
-# 4) §0 핵심 수치 ↔ SIM 요약
+# 4) 한눈에 보기·§0 핵심 수치 ↔ SIM 요약
 KEY = dict(re.findall(r"(\w+)=([^\s]+)", SIM.split("### 핵심 수치 요약")[1]))
 sec0 = body.split("## 1. ")[0]
 need(f"1보스전 {KEY['first_boss_secs']}초, 사망 {KEY['first_boss_deaths']}" in sec0, "§0 첫 보스")
@@ -137,11 +151,24 @@ need(KEY["natural_secs"] + "초" in sec0, "§0 자연 초")
 need(KEY["pvp_pair_range"] in sec0, "§0 PvP 범위")
 need(f"{KEY['ls_deaths_20']} vs {KEY['bal_deaths_20']}" in sec0, "§0 흡혈")
 need(f"중간값 최단 {KEY['plus10_min_secs']}초, 절대 최단 {KEY['plus10_abs_min_secs']}초" in sec0, "§0 +10 최단")
+need(f"처치 {pct(float(KEY['second_boss_kill']))}" in sec0, "§0 2보스 처치율")
+need(f"판 사망 {KEY['first_run_deaths']}" in sec0, "§0 첫 판 사망")
+need(f"상한 타격 {pct(float(KEY['first_run_capped']))}" in sec0, "§0 첫 판 상한 타격")
+need(f"잔여 에너지 {KEY['energy_left_full20']}" in sec0 or f"잔여 {KEY['energy_left_full20']}" in sec0, "§0 잔여 에너지")
+need(f"{float(KEY['natural_kill'].split('~')[0])*100:.0f}~{float(KEY['natural_kill'].split('~')[1])*100:.0f}%" in sec0, "§0 자연 처치율")
+glance = body.split("## 0. ")[0]
+need(len([l for l in glance.splitlines() if re.match(r"^\d+\. ", l)]) <= 15, "한눈에 보기 15줄 초과")
+# 보스 min_hits_floor·장갑 제약 수치가 카드와 일치
+for bid, b in cfg["bosses"].items():
+    need(f"이론 하한 {b['min_hits_floor']}타" in body, f"{bid} 이론 하한 타수")
+# 비평 반영 기록 40건
+need(sum(1 for l in body.splitlines() if re.match(r"^\| K[123]-", l)) == 40, "비평 반영 기록 40행")
 
 # 5) 낡은 문구(B 안·v8 설명 열 제외) — 본문 어디에도 없어야 함
 stale = ["에너지 14", "heal_per_hit_cap", "12%×P", "0.4×레벨", "타격당 회복 ≤ 최대 체력 6%", "탭 성공률 85%", "0.3초 안에 탭",
          "3.5~6%", "최소 13타", "회피율 = 치명타 확률 × 0.8", "하급 3개 → 중급 1개", "약 38개", "k = 1 + floor(0.5×log2", "강화 보호 두루마리 | 49",
-         "흡혈 ≤20%", "초당 회복 ≤최대 체력 4%", "×0.035 (PvE"]
+         "흡혈 ≤20%", "초당 회복 ≤최대 체력 4%", "×0.035 (PvE", "1칸 = 25 stud", "구독(Subscription) — 월 정액", "7일 무료 체험", "광장(루프 입·출구)에서 0",
+         "서버는 레벨마다 주사위", "×2.0, 일부 보스", "+1%p(한계 돌파)", "zone_p_manual", "구역 22%"]
 for s_ in stale:
     need(s_ not in body, f"낡은 문구 남음: {s_}")
 

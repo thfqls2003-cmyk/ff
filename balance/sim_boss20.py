@@ -64,14 +64,28 @@ DEFAULT_GEAR = dict(
     energy_boss=0, cap_add=0.0, nth_crit=0, first_hits_fast=0, first_hits_mult=1.0,
     multi_atk_bonus=0.0, revive_invuln_add=0.0, first_death_cost=None, luk_mult=1.0,
     zone_exp_bonus=0.0, var_lo=0.9, var_hi=1.1, move_bonus=0.0, ls_crit_mult=1.0,
-    reflect=0.0, splash=0.0, heal_cap_s_add=0.0, crit_pierce_add=0.0, items=[],
+    reflect=0.0, splash=0.0, heal_cap_s_add=0.0, crit_pierce_add=0.0, cap_rel_add=0.0, items=[],
 )
 MULT_KEYS = {"atk_mult_bonus": "atk_mult", "exp_mult_bonus": "exp_mult",
              "boss_exp_mult_bonus": "boss_exp_mult", "hp_mult_bonus": "hp_mult",
              "luk_mult_bonus": "luk_mult"}
 ADD_KEYS = {"S", "ls", "range_add", "crit_dmg", "crit_p_add", "energy_start", "energy_boss",
-            "cap_add", "multi_atk_bonus", "revive_invuln_add", "zone_exp_bonus", "move_bonus",
+            "cap_add", "cap_rel_add", "multi_atk_bonus", "revive_invuln_add", "zone_exp_bonus", "move_bonus",
             "reflect", "splash", "heal_cap_s_add", "crit_pierce_add"}
+
+
+def jackpot_draw(n, p, rnd):
+    """'행운!' 당첨 수 ~ Binomial(n, p). 서버 구현과 동일: n<50 은 직접 주사위, 그 이상은 정규 근사 n·p + √(n·p·(1−p))·Z 1회
+    (K3: 레벨마다 주사위는 B20 한 번에 112억 회라 불가). rnd 가 None 이면 기대값(보정·PvP 용 결정론)."""
+    if n <= 0 or p <= 0:
+        return 0.0
+    if rnd is None:
+        return n * p
+    if n < 50:
+        return float(sum(1 for _ in range(n) if rnd.random() < p))
+    mu = n * p
+    sd = math.sqrt(n * p * (1 - p))
+    return float(min(n, max(0, round(mu + sd * rnd.gauss(0.0, 1.0)))))
 
 
 def caps_of(cfg, pvp=False):
@@ -143,11 +157,12 @@ def auto_equip(cfg, owned):
 # 플레이어
 # ----------------------------------------------------------------------------
 class Player:
-    def __init__(self, cfg, gear, ratio=None, manual=True, pvp=False, no_jackpot=False):
+    def __init__(self, cfg, gear, ratio=None, manual=True, pvp=False, no_jackpot=False, rng=None):
         self.cfg = cfg
         self.g = gear
         self.pvp = pvp
         self.no_jackpot = no_jackpot
+        self.rng = rng   # 행운! 당첨 주사위(이항 근사). None = 기대값
         self.caps = caps_of(cfg, pvp)
         self.curve = Curve(cfg["exp_curve"])
         self.st = cfg["stats"]
@@ -221,17 +236,19 @@ class Player:
         return min(f["p_cap"], f["p_coef"] * L / (L + f["lvl_coef"] * self.lvl + f["c"]))
 
     def gain_exp(self, e):
-        """경험치 → 레벨(닫힌 식) → 포인트(레벨당 3, 확률 p 로 '행운! 2배 당첨') → 자동 분배 → 최대체력 증가분 회복."""
+        """경험치 → 레벨(닫힌 식, floor(L(E)+1e-9) — 부동소수 왕복 −1 방지, 단조 보호) → 포인트(레벨당 3, 당첨 수 ~ Binomial(n,p) 1회 추첨으로
+        그 레벨들의 포인트 2배) → 자동 분배 → 최대체력 증가분 회복. 저장 원본은 누적 경험치 E(double), 레벨은 캐시."""
         self.exp += e
-        newL = int(self.curve.L(self.exp))
+        newL = max(self.lvl, int(math.floor(self.curve.L(self.exp) + 1e-9)))
         n = newL - self.lvl
         if n <= 0:
             return 0
         f = self.F["luck_bonus"]
         p = 0.0 if self.no_jackpot else self.luck_jackpot_p()
         ppl = self.st["pts_per_level"]
-        pts = n * ppl * (1 + p * (f["double_mult"] - 1))   # 기대값 (서버는 레벨마다 주사위)
-        self.jackpots += n * p
+        hits = jackpot_draw(n, p, self.rng)
+        pts = n * ppl + hits * ppl * (f["double_mult"] - 1)
+        self.jackpots += hits
         old = self.maxhp()
         tot = sum(self.ratio.values())
         for key in self.pts:
@@ -335,14 +352,15 @@ class RunOver(Exception):
 
 
 class RunState:
-    def __init__(self, cfg, rnd, energy):
+    def __init__(self, cfg, rnd, energy, unlimited=False):
         self.cfg = cfg
         self.rnd = rnd
-        self.energy = energy
+        self.energy_max = 10 ** 9 if unlimited else cfg["run"].get("energy_max", 10 ** 9)   # 보유 상한 (K2: 잔여 에너지 농사·죽음 러시 봉인); unlimited = 보정·러시용 결투
+        self.energy = min(energy, self.energy_max)
         self.time = 0.0
         self.deaths = 0
-        self.chapter_deaths = 0   # 광장(루프 입·출구)에서 초기화되는 누진 사망 카운터
-        self.first_death_used = False
+        self.chapter_deaths = 0   # 문(보스 처치)·루프 입장에서 0 으로 초기화되는 누진 사망 카운터 (K1·K2: 광장 왕복으로는 초기화 안 됨)
+        self.first_death_used = False   # 수호 부적 '판마다 첫 사망' 판당 1회 플래그 (K2-7)
         self.fever_count = 0
         self.near_miss = 0
         self.capped_hits = 0
@@ -351,12 +369,19 @@ class RunState:
         self.heal_total = 0.0
         self.dmg_taken_total = 0.0
         self.boss_secs_total = 0.0
+        self.cur_boss_unit = None    # 진행 중인 보스전의 보스 유닛 (게임오버 순간 잔여 체력 기록용, K1-F1)
+        self.last_stand = False      # 에너지 0 '마지막 도전' 중 (K1-F5)
+        self.end_where = None        # 판이 끝난 지점: complete / boss_gameover:Bxx / fight_death / no_boss_energy0
+
+    def add_energy(self, v):
+        self.energy = min(self.energy_max, self.energy + v)
 
     def death_cost(self, g):
         R = self.cfg["run"]
-        n = self.chapter_deaths if R.get("death_counter_reset_at_plaza", False) else self.deaths  # 이번이 n+1 번째 사망
+        mode = R.get("death_counter_reset", "door")
+        n = self.chapter_deaths if mode in ("door", "plaza") else self.deaths  # 이번이 n+1 번째 사망
         cost = min(R["energy_death_max"], R["energy_death_base"] + n * R["energy_death_step"])
-        if n == 0 and g["first_death_cost"] is not None:
+        if g["first_death_cost"] is not None and not self.first_death_used:
             cost = g["first_death_cost"]
         return cost
 
@@ -364,8 +389,11 @@ class RunState:
 # ----------------------------------------------------------------------------
 # 전투
 # ----------------------------------------------------------------------------
-def combat(rs, p, mons, boss_def=None, zone=False, fever_on=True, pvp_like=False):
-    """mons: 몬스터 dict 리스트(보스전이면 None + boss_def). 반환 dict(won, secs, deaths, lv_gain, hits, heal_ps, dmg_ps)."""
+def combat(rs, p, mons, boss_def=None, zone=False, fever_on=True, pvp_like=False, zone_dmg=None):
+    """mons: 몬스터 dict 리스트(보스전이면 None + boss_def). zone_dmg: 구간별 도박 구역 피해 배율(None 이면 기본값).
+    반환 dict(won, secs, deaths, lv_gain, hits, heal_ps, dmg_ps).
+    거리 모델 없음 = 규칙: 보스전은 좁은 원형 제단(반지름 ≤ 보스 반지름 + combat.boss_arena_radius_add) 안에서 치르고 플레이어는 보스 사거리 밖으로
+    나갈 수 없다(브레스만 바깥 고리로 회피). 일반 몬스터 rise 종 이속 22 ≥ 플레이어 20 이라 뒤로 걷기 카이팅 불가 (K3-3)."""
     cfg = rs.cfg
     C = cfg["combat"]
     F = cfg["formulas"]
@@ -374,7 +402,7 @@ def combat(rs, p, mons, boss_def=None, zone=False, fever_on=True, pvp_like=False
     t = 0.0
     TM = C["timing"]
     DV = (F["damage_taken"]["var_lo"], F["damage_taken"]["var_hi"])
-    dmg_in = F["damage_taken"]["zone_dmg_mult"] if zone else 1.0
+    dmg_in = (zone_dmg if zone_dmg is not None else F["damage_taken"]["zone_dmg_mult"]) if zone else 1.0
     exp_m = (F["exp_gain"]["zone_exp_mult"] + g["zone_exp_bonus"]) if zone else 1.0
     enemies = []
     B = None
@@ -382,6 +410,7 @@ def combat(rs, p, mons, boss_def=None, zone=False, fever_on=True, pvp_like=False
         bu = Unit(boss_def, C["first_hit"], is_boss=True)
         enemies.append(bu)
         B = BossState(boss_def, bu, p, C)
+        rs.cur_boss_unit = bu
     else:
         for i, m in enumerate(mons):
             enemies.append(Unit(m, C["first_hit"] + TM["add_spawn_stagger_s"] * i))
@@ -392,7 +421,9 @@ def combat(rs, p, mons, boss_def=None, zone=False, fever_on=True, pvp_like=False
 
     def spawn_adds(when):
         a = B.adds
-        for i in range(a["count"]):
+        alive_adds = sum(1 for e in enemies if e.alive and not e.is_boss)
+        room = max(0, TM.get("max_adds_alive", 3) - alive_adds)   # 동시 수하 상한 (K3-12: 모바일 성능), 초과분은 소환되지 않음
+        for i in range(min(a["count"], room)):
             enemies.append(Unit(a["unit"], when + C["first_hit"] + TM["add_spawn_stagger_s"] * i))
 
     def die():
@@ -465,7 +496,9 @@ def combat(rs, p, mons, boss_def=None, zone=False, fever_on=True, pvp_like=False
                 pierce = min(C["crit_cap_mult"] + g["crit_pierce_add"], p.caps["crit_pierce"])
                 if B.pierce_cap is not None:
                     pierce = min(pierce, B.pierce_cap)
-            cap = (B.cap + g["cap_add"]) * e.maxhp * pierce * (B.stagger_cap if stag else 1.0)
+            if t < state["invuln"]:
+                dmg *= C.get("revive_invuln_boss_dmg_mult", 1.0)   # 부활 무적 중 보스에게 주는 피해 감쇠 (K2-5: 죽음 러시 봉인, 일반 몬스터는 그대로)
+            cap = (B.cap * (1 + g["cap_rel_add"]) + g["cap_add"]) * e.maxhp * pierce * (B.stagger_cap if stag else 1.0)
             rs.boss_hits += 1
             if dmg > cap:
                 dmg = cap
@@ -547,10 +580,11 @@ def combat(rs, p, mons, boss_def=None, zone=False, fever_on=True, pvp_like=False
             if al:
                 # 이번 스윙의 간격 (피버·선제 러시 반영) → 흡혈 상한도 이 간격에 비례
                 iv = p.interval()
-                if state["fever"] > t:
-                    iv = max(C["attack_interval"] / F["aspd"]["fever_abs_cap"], iv / C["fever_aspd"])
                 if state["hits"] < g["first_hits_fast"]:
                     iv /= g["first_hits_mult"]
+                if state["fever"] > t:
+                    iv /= C["fever_aspd"]
+                iv = max(C["attack_interval"] / F["aspd"]["fever_abs_cap"], iv)   # 실효 공속 절대 상한 — 피버·선제 러시를 전부 적용한 뒤 자른다 (K2-8)
                 k = p.targets(len(al))
                 state["hits"] += 1
                 forced = g["nth_crit"] > 0 and state["hits"] % g["nth_crit"] == 0
@@ -559,7 +593,10 @@ def combat(rs, p, mons, boss_def=None, zone=False, fever_on=True, pvp_like=False
                 if g["multi_atk_bonus"] > 0 and len(al) >= 2:
                     base_atk *= (1 + g["multi_atk_bonus"])
                 ls_eff = p.ls() * (B.ls_mult if B is not None else 1.0)
-                heal_cap = p.heal_cap_per_s(ls_eff) * p.maxhp() * iv
+                hc_s = p.heal_cap_per_s(ls_eff)
+                if B is not None and B.mirror:
+                    hc_s = min(hc_s, caps_of(cfg, True)["heal_per_s_max"])   # 거울 기사 = PvP 예습: 결투장 초당 회복 상한 적용 (K2-9)
+                heal_cap = hc_s * p.maxhp() * iv
                 swing_heal = 0.0
                 for e in al[:k]:
                     if not e.alive:
@@ -678,7 +715,7 @@ def run(cfg, plan="main", owned=(), plus=None, manual=True, ratio=None, vip=Fals
     routes = cfg["routes"]
     eq = equip if equip is not None else auto_equip(cfg, owned)
     gear = aggregate(cfg, eq, plus)
-    p = Player(cfg, gear, ratio, manual)
+    p = Player(cfg, gear, ratio, manual, rng=rnd)
     rs = RunState(cfg, rnd, R["energy_start"] + gear["energy_start"] + (cfg["monetization"]["pass_energy_bonus"] if vip else 0))
     rs.time = R["village_to_gate_s"]
     killed_before = set(killed_before) if killed_before is not None else {cfg["items"][i]["boss"] for i in owned}
@@ -699,7 +736,10 @@ def run(cfg, plan="main", owned=(), plus=None, manual=True, ratio=None, vip=Fals
         rs.time = W["warp_s"]
 
     def do_stage(rid, stage, loop_ctx):
-        """일반 전투 + 보스. 반환 boss 로그 항목(또는 None)."""
+        """일반 전투(고정 트리거 fights 회) + 보스. 반환 boss 로그 항목.
+        규칙(run.text_ko 와 1:1): ① 조우는 구간 길이/fights 지점마다 1회 강제(확률 게이지 아님, K3-1) ② 도박 구역은 트리거 지점 위 luck_zones 곳(인트로 제외)
+        ③ 에너지 0 이면 남은 조우는 생기지 않고 제단 보스전만 치른다('마지막 도전', K1-F5) ④ 보스 제단은 판당 1회, 처치한 구간은 조우 없음, 루프 재입장 불가
+        ⑤ 마지막 열린 보스를 잡으면 자동 결산(end_after_last_boss) — 잔여 에너지 농사 없음 (K2-1·K3-5)."""
         route = routes[rid]
         mons = [cfg["monsters"][m] for m in stage["monsters"]]
         weights = stage["monster_weights"]
@@ -710,31 +750,48 @@ def run(cfg, plan="main", owned=(), plus=None, manual=True, ratio=None, vip=Fals
         b = cfg["bosses"][stage["boss"]]
         cond = b.get("spawn_condition")
         zone_win = False
+        intro = route.get("intro_fights", 0) if (rid == "main" and stage["stage"] == 1) else 0
+        intro_seq = route.get("intro_sequence") or [stage["monsters"][0]] * intro
+        cand_idx = list(range(intro, nf))
+        zone_idx = set(rnd.sample(cand_idx, min(stage.get("luck_zones", 1), len(cand_idx)))) if cand_idx else set()
+        use_p = C["zone_use_p_manual"] if manual else C["zone_use_p_auto"]
+        if cond and cond["type"] == "zone_fight_this_stage" and manual:
+            use_p = 1.0   # 조건을 아는 수동 플레이어는 일부러 구역에서 싸운다
+        zdm = F["damage_taken"].get("zone_dmg_mult_by_stage", {}).get(rid, {}).get(str(stage["stage"]), F["damage_taken"]["zone_dmg_mult"])
+        speed = R["move_speed"] * (1 + gear["move_bonus"])
         for fi in range(nf):
-            walk = seg / (R["move_speed"] * (1 + gear["move_bonus"]))
+            if rs.energy <= 0:
+                # 마지막 도전: 에너지 0 → 남은 트리거는 비활성(안전 통로), 제단으로 직행
+                rs.last_stand = True
+                rs.time += (nf - fi) * seg / speed
+                break
+            walk = seg / speed
             rs.time += walk
             p.hp = min(p.maxhp(), p.hp + p.maxhp() * (C["after_fight_heal"] + C["regen_per_s"] * walk))
-            if rid == "main" and stage["stage"] == 1 and fi < route.get("intro_fights", 0):
-                group = [mons[0]]
+            if fi < intro:
+                group = [cfg["monsters"][intro_seq[fi]]]
             else:
                 n = rnd.choices([1, 2, 3], gprobs)[0]
                 group = [rnd.choices(mons, weights)[0] for _ in range(n)]
-            zp = C["zone_p_manual"] if manual else C["zone_p_auto"]
-            if cond and cond["type"] == "zone_fight_this_stage" and fi == 0 and manual:
-                zp = 1.0   # 조건을 아는 수동 플레이어는 일부러 구역에서 싸운다
-            zone = rnd.random() < zp
+            zone = (fi in zone_idx) and rnd.random() < use_p
             rs.time += C["spawn_s"]
-            res = combat(rs, p, group, None, zone, fever)
+            try:
+                res = combat(rs, p, group, None, zone, fever, zone_dmg=zdm)
+            except RunOver:
+                rs.end_where = "fight_death"   # 일반 전투 사망으로 에너지 0
+                raise
             rs.time += res["secs"]
             fight_deaths += res["deaths"]
             fight_secs += res["secs"]
             if not res["won"]:
+                rs.end_where = "fight_death"
                 raise RunOver()
             if zone:
                 zone_win = True
             rs.energy -= R["energy_fight"]
             rs.time += C["loot_s"]
-            if rs.energy <= 0:
+            if rs.energy <= 0 and not R.get("last_stand", True):
+                rs.end_where = "after_fight_win"
                 raise RunOver()
         # 보스 (조건부 등장)
         ctx = dict(prev_boss=(loop_ctx["bosses"][-1] if loop_ctx and loop_ctx["bosses"] else None),
@@ -744,30 +801,51 @@ def run(cfg, plan="main", owned=(), plus=None, manual=True, ratio=None, vip=Fals
         if cond:
             conds[b["id"]] = spawned
         entry = dict(boss=b["id"], route=rid, stage=stage["stage"], arrive=p.lvl, spawned=spawned, won=False,
-                     secs=0.0, deaths=0, hits=0)
+                     secs=0.0, deaths=0, hits=0, gameover=False, boss_hp_left=None, last_stand=rs.last_stand)
+        stage_log.append(dict(route=rid, stage=stage["stage"], lvl_in=lvl_in, lvl_out=p.lvl, fight_deaths=fight_deaths, fight_secs=fight_secs))
         if spawned:
             rs.time += C["boss_intro_s"]
             if R.get("boss_altar_full_heal", True):
                 p.hp = p.maxhp()
-            res = combat(rs, p, None, b, False, fever)
+            d0, t0 = rs.deaths, rs.time
+            try:
+                res = combat(rs, p, None, b, False, fever)
+            except RunOver:
+                # 보스전 도중 에너지 0 = 게임오버. 통계에서 빠뜨리지 않는다 (K1-F1): 진입·사망·그 순간 보스 잔여 체력 기록
+                bu = rs.cur_boss_unit
+                entry.update(gameover=True, deaths=rs.deaths - d0, boss_hp_left=(max(0.0, bu.hp / bu.maxhp) if bu else None))
+                boss_log.append(entry)
+                if loop_ctx is not None:
+                    loop_ctx["bosses"].append(entry)
+                rs.end_where = "boss_gameover:" + b["id"]
+                raise
             rs.time += res["secs"]
             rs.boss_secs_total += res["secs"]
             entry.update(won=res["won"], secs=res["secs"], deaths=res["deaths"], hits=res["hits"])
-            stage_log.append(dict(route=rid, stage=stage["stage"], lvl_in=lvl_in, lvl_out=p.lvl, fight_deaths=fight_deaths, fight_secs=fight_secs))
             boss_log.append(entry)
             if loop_ctx is not None:
                 loop_ctx["bosses"].append(entry)
             if not res["won"]:
+                rs.end_where = "boss_timeout:" + b["id"]
                 raise RunOver()
             # 보상
-            rs.energy += (R["energy_boss_main"] if rid == "main" else R["energy_boss_loop"]) + gear["energy_boss"]
+            rs.add_energy((R["energy_boss_main"] if rid == "main" else R["energy_boss_loop"]) + gear["energy_boss"])
+            rs.last_stand = False
+            if R.get("death_counter_reset", "door") == "door":
+                rs.chapter_deaths = 0   # 문을 열면 누진 사망 카운터 0 (K1-F2: 한 구간 안에서만 3→4→5→6)
             D = cfg["stones"]["drop"]
+            W = R["warp"]
             first = b["id"] not in killed_before
-            n_st = D["first_kill"] if first else D["repeat_kill"]
-            if not first and rnd.random() < D["repeat_bonus_p"]:
-                n_st += D["repeat_bonus_n"]
-            if res["deaths"] == 0:
-                n_st += D["no_death_bonus"]
+            if first:
+                n_st = D["first_kill"] + (D["no_death_bonus"] if res["deaths"] == 0 else 0)
+            elif start != "village":
+                n_st = D["repeat_kill"] * W.get("repeat_stone_mult", 1.0)   # 워프 판 재처치 = 자동 모험과 같은 50%, 보너스 없음 (K2-4)
+            else:
+                n_st = D["repeat_kill"]
+                if rnd.random() < D["repeat_bonus_p"]:
+                    n_st += D["repeat_bonus_n"]
+                if res["deaths"] == 0:
+                    n_st += D["no_death_bonus"]
             stones[str(b["stone_tier"])] += n_st
             Ed = cfg["stones"]["essence_drop"]
             lk = p.luk()
@@ -778,22 +856,23 @@ def run(cfg, plan="main", owned=(), plus=None, manual=True, ratio=None, vip=Fals
             essence[b["id"]] = essence.get(b["id"], 0) + n_es
             rs.time += C["door_s"]
         else:
-            stage_log.append(dict(route=rid, stage=stage["stage"], lvl_in=lvl_in, lvl_out=p.lvl, fight_deaths=fight_deaths, fight_secs=fight_secs))
             boss_log.append(entry)
             if loop_ctx is not None:
                 loop_ctx["bosses"].append(entry)
             rs.time += C["door_s"] * C["timing"]["no_boss_door_s_mult"]
+            if rs.energy <= 0:
+                rs.end_where = "no_boss_energy0"
+                raise RunOver()
         return entry
 
     def do_loop(rid):
         route = routes[rid]
         rs.time += route["enter_s"]
-        rs.chapter_deaths = 0
+        rs.chapter_deaths = 0   # 루프 '입장' 1회만 초기화 — 퇴장·광장 왕복으로는 초기화되지 않는다 (K2-7)
         ctx = dict(bosses=[], deaths_at_entry=rs.deaths)
         for stage in route["stages"]:
             do_stage(rid, stage, ctx)
         rs.time += route["enter_s"]
-        rs.chapter_deaths = 0
 
     try:
         if start != "village":
@@ -807,6 +886,7 @@ def run(cfg, plan="main", owned=(), plus=None, manual=True, ratio=None, vip=Fals
             for rid in ("left", "right"):
                 if plan.get(rid) and routes[rid]["entry_after_main_stage"] == stage["stage"]:
                     do_loop(rid)
+        rs.end_where = "complete"   # 마지막 열린 보스 처치 → 자동 결산 (run.end_after_last_boss)
     except RunOver:
         pass
     rs.time += R["result_s"]
@@ -816,7 +896,7 @@ def run(cfg, plan="main", owned=(), plus=None, manual=True, ratio=None, vip=Fals
                 fever=rs.fever_count, near_miss=rs.near_miss, jackpots=p.jackpots, equip=eq, stones=stones, essence=essence,
                 conds=conds, atk=p.atk(), hp=p.maxhp(), crit=p.crit_p(), ls=p.ls(), aspd=p.aspd(),
                 max_hit_taken=rs.max_hit_taken, capped_ratio=(rs.capped_hits / rs.boss_hits if rs.boss_hits else 0.0),
-                boss_secs_total=rs.boss_secs_total)
+                boss_secs_total=rs.boss_secs_total, end_where=rs.end_where or "unknown")
 
 
 # ----------------------------------------------------------------------------
@@ -844,24 +924,33 @@ def summarize(cfg, plan, results, start="village"):
     order = boss_order(cfg, plan, start)
     nb = len(order)
     rows = []
+    N = len(results)
     for bid in order:
         logs = [bl for r in results for bl in r["boss_log"] if bl["boss"] == bid]
-        reach = len(logs) / len(results)
-        sp = [l for l in logs if l["spawned"]]
+        reach = len(logs) / N
+        sp = [l for l in logs if l["spawned"]]          # 보스전 '진입' (게임오버 포함, K1-F1)
         wins = [l for l in sp if l["won"]]
+        go = [l for l in sp if l.get("gameover")]
+        go_hp = [l["boss_hp_left"] for l in go if l.get("boss_hp_left") is not None]
         rows.append(dict(
             boss=bid, name=cfg["bosses"][bid]["name_ko"], reach=reach, spawn=(len(sp) / len(logs)) if logs else 0.0,
             arrive=med([l["arrive"] for l in logs], 0), win=(len(wins) / len(sp)) if sp else 0.0,
+            enter=len(sp) / N, kill=len(wins) / N, gameover=len(go) / N, go_hp=(st.median(go_hp) if go_hp else None),
             secs=med([l["secs"] for l in wins], 0), secs_min=min([l["secs"] for l in wins], default=0),
             secs_max=max([l["secs"] for l in wins], default=0),
-            deaths=st.mean([l["deaths"] for l in sp]) if sp else 0.0,
+            deaths=st.mean([l["deaths"] for l in sp]) if sp else 0.0,   # 진입자 전체(게임오버 판 포함) 기준
             hits=med([l["hits"] for l in wins], 0),
         ))
     clears = [r for r in results if r["bosses"] == nb]
     main_n = len([b for b in order if cfg["bosses"][b]["route"] == "main"]) or len(cfg["routes"]["main"]["stages"])
+    ends = {}
+    for r in results:
+        k = r.get("end_where", "unknown")
+        k = "boss_gameover" if k.startswith("boss_gameover") else k
+        ends[k] = ends.get(k, 0) + 1
     return dict(
-        rows=rows, nb=nb, clear=len(clears) / len(results),
-        clear_main=sum(1 for r in results if r["bosses_main"] == main_n) / len(results),
+        rows=rows, nb=nb, clear=len(clears) / N,
+        clear_main=sum(1 for r in results if r["bosses_main"] == main_n) / N,
         final=med([r["final_lvl"] for r in results], 0),
         time=med([r["time"] for r in results], 0), time_clear=med([r["time"] for r in clears], 0),
         deaths=st.mean([r["deaths"] for r in results]), bosses=st.mean([r["bosses"] for r in results]),
@@ -871,8 +960,18 @@ def summarize(cfg, plan, results, start="village"):
         stones=st.mean([sum(r["stones"].values()) for r in results]),
         essence=st.mean([sum(r["essence"].values()) for r in results]),
         fight_deaths=st.mean([sum(sl["fight_deaths"] for sl in r["stage_log"]) for r in results]),
-        energy_left=med([r["energy"] for r in results], 0),
+        energy_left=med([r["energy"] for r in results], 0), energy_min=min(r["energy"] for r in results),
+        ends={k: v / N for k, v in ends.items()},
+        boss_gameover=sum(1 for r in results if r.get("end_where", "").startswith("boss_gameover")) / N,
     )
+
+
+END_KO = {"complete": "완주(자동 결산)", "boss_gameover": "보스전 도중 게임오버", "fight_death": "일반 전투 사망", "after_fight_win": "전투 승리 직후 에너지 0",
+          "no_boss_energy0": "에너지 0·조건부 보스 미등장", "unknown": "기타"}
+
+
+def ends_text(S):
+    return ", ".join(f"{END_KO.get(k.split(':')[0], k)} {v*100:.0f}%" for k, v in sorted(S["ends"].items(), key=lambda x: -x[1]))
 
 
 def print_summary(cfg, title, S, show_rows=True):
@@ -881,21 +980,24 @@ def print_summary(cfg, title, S, show_rows=True):
     print(f"클리어율(전 보스 {S['nb']}) {S['clear']*100:.0f}% | 가운데 10보스 클리어 {S['clear_main']*100:.0f}% | 평균 처치 보스 {S['bosses']:.2f} | "
           f"중간 최종 레벨 {fmt_big(S['final'])} | 중간 판 시간 {S['time']/60:.1f}분 (클리어판 {S['time_clear']/60 if S['time_clear'] else 0:.1f}분) | "
           f"평균 사망 {S['deaths']:.2f} (일반 전투 {S['fight_deaths']:.2f}) | 피버 {S['fever']:.1f}회 | 니어미스 {S['near']:.2f}회 | "
-          f"행운! {S['jackpots']:.0f}회 | 한 타 최대 피격 {S['max_hit']*100:.0f}% | 상한 타격 {S['capped']*100:.0f}% | 강화석 {S['stones']:.1f} 정수 {S['essence']:.1f}")
+          f"행운! {S['jackpots']:.0f}회 | 한 타 최대 피격 {S['max_hit']*100:.0f}% | 상한 타격 {S['capped']*100:.0f}% | 강화석 {S['stones']:.1f} 정수 {S['essence']:.1f} | "
+          f"에너지 잔여(중간/최소) {S['energy_left']:.0f}/{S['energy_min']:.0f}")
+    print(f"판 종료 지점: {ends_text(S)}")
     if show_rows:
-        print("| # | 보스 | 도달율 | 등장(조건) | 도착 레벨(중간) | 승률 | 보스전 초(중간) | 최소~최대 | 타수 | 평균 사망 |")
-        print("|---|---|---|---|---|---|---|---|---|---|")
+        print("| # | 보스 | 도달율 | 등장(조건) | 도착 레벨(중간) | 진입→처치 | 처치율 | 게임오버율 | 게임오버 잔여 체력 | 보스전 초(중간) | 최소~최대 | 타수 | 사망(진입자) |")
+        print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for i, r in enumerate(S["rows"]):
             if r["reach"] == 0:
-                print(f"| {i+1} | {r['name']} | 0% | - | - | - | - | - | - | - |")
+                print(f"| {i+1} | {r['name']} | 0% | - | - | - | - | - | - | - | - | - | - |")
                 continue
             cond = cfg["bosses"][r["boss"]].get("spawn_condition")
             sp = f"{r['spawn']*100:.0f}%" if cond else "항상"
             if r["spawn"] == 0:
-                print(f"| {i+1} | {r['name']} | {r['reach']*100:.0f}% | {sp} | {fmt_big(r['arrive'])} | - | - | - | - | - |")
+                print(f"| {i+1} | {r['name']} | {r['reach']*100:.0f}% | {sp} | {fmt_big(r['arrive'])} | - | - | - | - | - | - | - | - |")
                 continue
-            print(f"| {i+1} | {r['name']} | {r['reach']*100:.0f}% | {sp} | {fmt_big(r['arrive'])} | {r['win']*100:.0f}% | "
-                  f"{r['secs']:.1f} | {r['secs_min']:.1f}~{r['secs_max']:.1f} | {r['hits']:.0f} | {r['deaths']:.2f} |")
+            gh = f"{r['go_hp']*100:.0f}%" if r["go_hp"] is not None else "-"
+            print(f"| {i+1} | {r['name']} | {r['reach']*100:.0f}% | {sp} | {fmt_big(r['arrive'])} | {r['win']*100:.0f}% | {r['kill']*100:.0f}% | "
+                  f"{r['gameover']*100:.0f}% | {gh} | {r['secs']:.1f} | {r['secs_min']:.1f}~{r['secs_max']:.1f} | {r['hits']:.0f} | {r['deaths']:.2f} |")
 
 
 def scenario(cfg, plan, owned, runs, plus=None, manual=True, ratio=None, vip=False, equip=None, seed0=1000,
@@ -925,24 +1027,27 @@ def natural_for(cfg, bid):
 # ----------------------------------------------------------------------------
 # PvP 결투 (마을 결투장)
 # ----------------------------------------------------------------------------
-def make_duelist(cfg, ratio, owned, plus=None, use_caps=True):
+def make_duelist(cfg, ratio, owned, plus=None, use_caps=True, equip=None):
     P = cfg["pvp"]
-    g = aggregate(cfg, auto_equip(cfg, owned), plus, pvp=use_caps)
+    g = aggregate(cfg, equip if equip is not None else auto_equip(cfg, owned), plus, pvp=use_caps)
     pl = Player(cfg, g, ratio, manual=False, pvp=use_caps, no_jackpot=(use_caps and P.get("points_fixed", False)))
     feed_exp(pl, pl.curve.E(P["duel_level"]))
     pl.hp = pl.maxhp()
     return pl
 
 
-def pvp_duel(cfg, ratio1, ratio2, owned, n, plus=None, use_caps=True, seed0=50000):
-    """둘 다 결투 레벨로 정규화, 각자 분배 비율 + 자동 장착 장비(+강화). caps.pvp 적용(use_caps). 반환 (승률, 평균 초)."""
+def pvp_duel(cfg, ratio1, ratio2, owned, n, plus=None, use_caps=True, seed0=50000, equip1=None, equip2=None, plus2=None):
+    """둘 다 결투 레벨로 정규화, 각자 분배 비율 + 장비(+강화; equip1/equip2 로 비대칭 장비, plus2 로 상대 강화). caps.pvp 적용(use_caps).
+    피해감소는 한 타 상한 '뒤'에 적용(K2-2), heal_off_after_s 뒤에는 양측 회복 0(K2-13). 반환 (승률, 평균 초)."""
     P = cfg["pvp"]
     caps = caps_of(cfg, True) if use_caps else caps_of(cfg, False)
     wins = 0
     secs = []
+    heal_off = P.get("heal_off_after_s", 10 ** 9)
     for i in range(n):
         rnd = random.Random(seed0 + i)
-        ps = [make_duelist(cfg, ratio1, owned, plus, use_caps), make_duelist(cfg, ratio2, owned, plus, use_caps)]
+        ps = [make_duelist(cfg, ratio1, owned, plus, use_caps, equip1),
+              make_duelist(cfg, ratio2, owned, (plus2 if plus2 is not None else plus), use_caps, equip2)]
         d0, d1 = P["first_swing_delay_s"]
         nxt = [rnd.uniform(d0, d1), rnd.uniform(d0, d1)]
         t = 0.0
@@ -956,8 +1061,8 @@ def pvp_duel(cfg, ratio1, ratio2, owned, n, plus=None, use_caps=True, seed0=5000
                 nxt[i_] = t + iv
                 continue
             crit = rnd.random() < a.crit_p()
-            dmg = a.atk() * (P["dmg_mult"] if use_caps else 1.0) * rnd.uniform(a.g["var_lo"], a.g["var_hi"]) * (a.crit_mult() if crit else 1) * (1 - d.g["dmg_reduce"])
-            dmg = min(dmg, d.maxhp() * caps["hit_taken_cap"])
+            dmg = a.atk() * (P["dmg_mult"] if use_caps else 1.0) * rnd.uniform(a.g["var_lo"], a.g["var_hi"]) * (a.crit_mult() if crit else 1)
+            dmg = min(dmg, d.maxhp() * caps["hit_taken_cap"]) * (1 - d.g["dmg_reduce"])
             d.hp -= dmg
             if d.g["reflect"] > 0:
                 a.hp -= min(dmg * d.g["reflect"], a.maxhp() * caps["hit_taken_cap"])
@@ -969,6 +1074,8 @@ def pvp_duel(cfg, ratio1, ratio2, owned, n, plus=None, use_caps=True, seed0=5000
             else:
                 heal = dmg * a.ls() * (a.g["ls_crit_mult"] if crit else 1.0)
             heal = min(heal, a.maxhp() * a.heal_cap_per_s(a.ls()) * iv)
+            if use_caps and t >= heal_off:
+                heal = 0.0   # 버티기 메타 방지: 45초부터 회복 없음
             a.hp = min(a.maxhp(), a.hp + heal)
             if d.hp <= 0 or a.hp <= 0:
                 break
@@ -1012,7 +1119,7 @@ def boss_rush(cfg, owned, plus=None, n=30, ratio=None, seed0=70000):
         g = aggregate(cfg, auto_equip(cfg, owned), plus)
         pl = Player(cfg, g, ratio, manual=True)
         feed_exp(pl, pl.curve.E(BR["level"]))
-        rs = RunState(cfg, rnd, 10 ** 9)
+        rs = RunState(cfg, rnd, 10 ** 9, unlimited=True)   # 러시는 에너지 없음
         tot = 0.0
         for bid in order:
             b = rush_scaled_boss(cfg, bid, pl)
@@ -1074,18 +1181,29 @@ def enhance_greedy(cfg, plus, stones, essence, equipped):
     return tries
 
 
-def account_growth(cfg, seed, max_runs=120, pass_auto=False):
+def account_growth(cfg, seed, max_runs=120, pass_auto=False, use_warp=True):
     """첫 계정에서 시작. 정책: 아이템 5개 미만이면 가운데만, 질풍 입구 보스(B05) 기록이 있으면 질풍 포함, B10 기록이 있으면 군단 포함.
+    워프(K2-4 반영): B10 을 unlock_kills 회 잡은 뒤에는 하루 5판 중 warp.daily_limit(2)판을 10단계 광장 워프 판(군단 루프만)으로 쓴다 — 재처치 강화석 50%·보너스 없음.
     강화: 판 끝마다 탐욕. 자동 모험: 하루(=판 5회)마다 free/pass 횟수 × 50% 강화석(첫 처치 없음). 반환 이정표."""
     owned, killed_ever, plus = [], set(), {}
     stones = {str(k): 0 for k in cfg["stones"]["tiers"]}
     essence = {}
+    kills = {}
     tmin = 0.0
-    out = dict(first10=None, first20=None, all_plus5=None, all_plus10=None, t10=None, t20=None, t5=None, tp10=None, runs=0)
+    out = dict(first10=None, first20=None, all_plus5=None, all_plus10=None, t10=None, t20=None, t5=None, tp10=None, runs=0, warp_runs=0)
     A = cfg["monetization"]["auto_adventure"]
+    W = cfg["run"]["warp"]
     for rn in range(1, max_runs + 1):
         plan = dict(left="B05" in killed_ever, right="B10" in killed_ever)
-        r = run(cfg, plan, owned, plus, seed=seed * 100000 + rn, killed_before=killed_ever)
+        warp_ok = use_warp and plan["right"] and kills.get("B10", 0) >= W["unlock_kills"]
+        day_slot = rn % A["manual_runs_per_day_assumed"]
+        if warp_ok and day_slot in tuple(range(1, W.get("daily_limit", 2) + 1)):
+            r = run(cfg, dict(left=False, right=True), owned, plus, seed=seed * 100000 + rn, killed_before=killed_ever, start="plaza10")
+            out["warp_runs"] += 1
+        else:
+            r = run(cfg, plan, owned, plus, seed=seed * 100000 + rn, killed_before=killed_ever)
+        for k in r["killed"]:
+            kills[k] = kills.get(k, 0) + 1
         tmin += r["time"] / 60
         for k, v in r["stones"].items():
             stones[k] += v
@@ -1134,13 +1252,30 @@ def full_report(cfg, N, quick=False):
     # A. 장비 0
     S0, _ = scenario(cfg, "main", [], N)
     print_summary(cfg, "A. 가운데 길 — 장비 0 (첫 판 / 부트스트랩 검증)", S0)
+    _b2, _b3 = S0["rows"][1], S0["rows"][2]
+    print(f"첫 판 결산: 판 사망 {S0['deaths']:.2f} | B02 진입 {_b2['enter']*100:.0f}%·처치 {_b2['kill']*100:.0f}%·게임오버 {_b2['gameover']*100:.0f}% | "
+          f"B03 진입 {_b3['enter']*100:.0f}%·처치 {_b3['kill']*100:.0f}%·게임오버 {_b3['gameover']*100:.0f}% | "
+          f"보스전 도중 게임오버로 끝난 판 {S0['boss_gameover']*100:.0f}% | 전투 승리 직후 에너지 0 종료 {S0['ends'].get('after_fight_win', 0)*100:.0f}%")
+    S0f, _ = scenario(cfg, "main", [], N, fever=False)
+    print_summary(cfg, "A-2. 가운데 길 — 장비 0, 피버 OFF (1차 출시 구성의 첫 판)", S0f, show_rows=False)
+    _f2, _f3 = S0f["rows"][1], S0f["rows"][2]
+    print(f"피버 OFF 첫 판 결산: 1보스 {S0f['rows'][0]['secs']:.1f}초 사망 {S0f['rows'][0]['deaths']:.2f} | B02 진입 {_f2['enter']*100:.0f}%·처치 {_f2['kill']*100:.0f}%·게임오버 {_f2['gameover']*100:.0f}% | B03 진입 {_f3['enter']*100:.0f}%·처치 {_f3['kill']*100:.0f}%")
+    alt = cfg["bosses"]["B01"].get("alt_drop_item")
+    if alt:
+        print(f"\n### A-3. 첫 보스 보상 2택1 — 2판째(그 아이템 하나만 보유): 엄니검 vs {cfg['items'][alt]['name_ko']} (첫 10분 안의 첫 '선택')")
+        print("| 선택 | B02 진입 | B02 처치 | B02 보스전 초 | B02 사망 | B03 진입 | B03 처치 | 평균 처치 보스 | 판 시간(분) | 판 사망 |")
+        print("|---|---|---|---|---|---|---|---|---|---|")
+        for iid in ("I01", alt):
+            Sx, _ = scenario(cfg, "main", [iid], H)
+            x2, x3 = Sx["rows"][1], Sx["rows"][2]
+            print(f"| {cfg['items'][iid]['name_ko']} | {x2['enter']*100:.0f}% | {x2['kill']*100:.0f}% | {x2['secs']:.1f} | {x2['deaths']:.2f} | {x3['enter']*100:.0f}% | {x3['kill']*100:.0f}% | {Sx['bosses']:.2f} | {Sx['time']/60:.1f} | {Sx['deaths']:.2f} |")
     # B. 장비 1개
     S1, _ = scenario(cfg, "main", main_items[:1], N)
     print_summary(cfg, "B. 가운데 길 — 장비 1개(엄니검)", S1)
     # C. 자연 진행 20보스
     print("\n### C. 자연 진행 — 보스 k 를 처음 만나는 판(이전 보스 아이템만 보유, 가운데 1~5 → 질풍 루프 / 가운데 10 + 질풍 5 → 군단 루프)")
-    print("| 보스 | 보유 아이템 수 | 도달율 | 등장(조건) | 도착 레벨 | 승률 | 보스전 초 | 타수 | 평균 사망(보스전) | 판 시간(분) |")
-    print("|---|---|---|---|---|---|---|---|---|---|")
+    print("| 보스 | 보유 아이템 수 | 도달율 | 등장(조건) | 도착 레벨 | 진입→처치 | 처치율 | 게임오버율 | 게임오버 잔여 체력 | 보스전 초 | 타수 | 사망(진입자) | 판 시간(분) |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     nat_rows = {}
     for bid in cfg["bosses"]:
         plan, owned = natural_for(cfg, bid)
@@ -1149,7 +1284,8 @@ def full_report(cfg, N, quick=False):
         nat_rows[bid] = r
         cond = cfg["bosses"][bid].get("spawn_condition")
         sp = f"{r['spawn']*100:.0f}%" if cond else "항상"
-        print(f"| {bid} {r['name']} | {len(owned)} | {r['reach']*100:.0f}% | {sp} | {fmt_big(r['arrive'])} | {r['win']*100:.0f}% | {r['secs']:.1f} | {r['hits']:.0f} | {r['deaths']:.2f} | {Sk['time']/60:.1f} |")
+        gh = f"{r['go_hp']*100:.0f}%" if r["go_hp"] is not None else "-"
+        print(f"| {bid} {r['name']} | {len(owned)} | {r['reach']*100:.0f}% | {sp} | {fmt_big(r['arrive'])} | {r['win']*100:.0f}% | {r['kill']*100:.0f}% | {r['gameover']*100:.0f}% | {gh} | {r['secs']:.1f} | {r['hits']:.0f} | {r['deaths']:.2f} | {Sk['time']/60:.1f} |")
     # D. 가운데 10종
     S10, _ = scenario(cfg, "main", main_items, N)
     print_summary(cfg, "D. 가운데 길만 — 가운데 길 아이템 10종 보유(자동 장착)", S10)
@@ -1179,8 +1315,7 @@ def full_report(cfg, N, quick=False):
     # I. 피버 OFF (1차 출시: 쿨다운 공유만)
     Sf, _ = scenario(cfg, "main", main_items, H, fever=False)
     print_summary(cfg, "I. 가운데 길 — 가운데 10종, 피버 OFF (1차 출시 구성: 리듬 탭 없음)", Sf)
-    Sf2, _ = scenario(cfg, "main", [], H, fever=False)
-    print(f"  장비 0 + 피버 OFF: 1보스 승률 {Sf2['rows'][0]['win']*100:.0f}% 사망 {Sf2['rows'][0]['deaths']:.2f} 초 {Sf2['rows'][0]['secs']:.1f}, 2보스 도달 {Sf2['rows'][1]['reach']*100:.0f}%")
+    print(f"  장비 0 + 피버 OFF(A-2): 1보스 승률 {S0f['rows'][0]['win']*100:.0f}% 사망 {S0f['rows'][0]['deaths']:.2f} 초 {S0f['rows'][0]['secs']:.1f}, 2보스 도달 {S0f['rows'][1]['reach']*100:.0f}% 처치 {S0f['rows'][1]['kill']*100:.0f}%")
     # J. 빌드 비교
     print("\n### J. 빌드(자동 분배 비율) 비교 — 풀장비 +0, 가운데 길 10보스 / 20보스 판")
     print("| 빌드 | 체:공:행:흡 | 가운데 10 클리어 | 20보스 클리어 | 중간 최종 레벨(20보스 판) | 판 시간(분) | 평균 사망 | 보스전 초 합(중간) | 치명 | 흡혈 |")
@@ -1269,6 +1404,33 @@ def full_report(cfg, N, quick=False):
     w10, s10 = pvp_duel(cfg, cfg["builds"]["균형(기본)"], cfg["builds"]["균형(기본)"], all_items, H, plus={i: 10 for i in all_items})
     w10b, s10b = pvp_duel(cfg, cfg["builds"]["탱커"], cfg["builds"]["균형(기본)"], all_items, H, plus={i: 10 for i in all_items})
     print(f"L-3. 전부 +10 결투: 균형 vs 균형 {w10*100:.0f}% ({s10:.1f}초), 탱커 vs 균형 {w10b*100:.0f}% ({s10b:.1f}초)")
+    # L-4 비대칭 장비 격자 (K2-2): 프리셋 5 × 장비셋 4, 상대 = 균형·기본(자동 장착) 장비, 양쪽 전부 +10
+    GEAR_SETS = {k: (v if v is not None else auto_equip(cfg, all_items)) for k, v in cfg["pvp"]["gear_sets_for_test"].items()}
+    base_eq_pvp = GEAR_SETS["공격셋"]
+    print("\n### L-4. PvP 장비 비대칭 격자 — 행(빌드 + 장비셋, 전부 +10) 이 '균형 + 공격셋(+10)' 을 이길 확률 (합격: 결투용 4셋 전부 20~80%; 'PvE 자동 장착' 열은 참고)")
+    print("| 빌드 \\ 장비셋 | " + " | ".join(GEAR_SETS.keys()) + " |")
+    print("|---|" + "---|" * len(GEAR_SETS))
+    asym = (1.0, 0.0)
+    for n1, r1 in builds:
+        cells = []
+        for gname, geq in GEAR_SETS.items():
+            w, s_ = pvp_duel(cfg, r1, cfg["builds"]["균형(기본)"], all_items, H, plus={i: 10 for i in all_items}, equip1=geq, equip2=base_eq_pvp)
+            cells.append(f"{w*100:.0f}%({s_:.0f}s)")
+            if "참고" not in gname:
+                asym = (min(asym[0], w), max(asym[1], w))
+        print(f"| {n1} | " + " | ".join(cells) + " |")
+    g_def = aggregate(cfg, GEAR_SETS["방어셋"], {i: 10 for i in GEAR_SETS["방어셋"]}, pvp=True)
+    print(f"비대칭 격자 승률 범위: {asym[0]*100:.0f}%~{asym[1]*100:.0f}% (목표 20~80%) — 방어셋 +10 PvP 피해감소 {g_def['dmg_reduce']*100:.1f}%(상한 {cfg['caps']['pvp']['dmg_reduce']*100:.0f}%, 용암 망토 강화 불가, 한 타 상한 {cfg['caps']['pvp']['hit_taken_cap']*100:.0f}% 뒤 적용). {cfg['pvp']['gear_sets_note_ko']}")
+    # L-5 함정 분배 (K2-15)
+    print("\n### L-5. 결투 함정 분배 — 임의 분배 vs 균형(기본 장비, +0 / +10) 승률")
+    print("| 분배 | +0 | +10 | 판정 |")
+    print("|---|---|---|---|")
+    trap_rows = {}
+    for name, rt in cfg["pvp"]["trap_builds_for_test"].items():
+        w0, _ = pvp_duel(cfg, rt, cfg["builds"]["균형(기본)"], all_items, H)
+        w1, _ = pvp_duel(cfg, rt, cfg["builds"]["균형(기본)"], all_items, H, plus={i: 10 for i in all_items})
+        trap_rows[name] = (w0, w1)
+        print(f"| {name} {rt['hp']}:{rt['atk']}:{rt['luk']}:{rt['ls']} | {w0*100:.0f}% | {w1*100:.0f}% | {'함정(결투장 입장 시 예측 카드 경고)' if max(w0, w1) < 0.2 else '허용'} |")
     # M. 익스플로잇
     print("\n### M. 익스플로잇 체크")
     f = cfg["formulas"]["luck_bonus"]
@@ -1284,15 +1446,26 @@ def full_report(cfg, N, quick=False):
         print(f"| {fmt_big(L)} | " + " | ".join(cells) + " |")
     Sl, _ = scenario(cfg, "main", all_items, H, ratio={"hp": 0.5, "atk": 0.5, "luk": 3.0, "ls": 0.0})
     print(f"행운 몰빵(0.5:0.5:3:0) 풀장비 가운데 길: 클리어 {Sl['clear_main']*100:.0f}% 사망 {Sl['deaths']:.2f} 최종 {fmt_big(Sl['final'])} (균형 {S20m['clear_main']*100:.0f}% / {S20m['deaths']:.2f} / {fmt_big(S20m['final'])})")
-    Sg, _ = scenario(cfg, "main", all_items, H, ratio={"hp": 0.5, "atk": 3.0, "luk": 0.5, "ls": 0.0})
-    print(f"공격 몰빵(0.5:3:0.5:0, 유리대포 함정) 풀장비 가운데 길: 클리어 {Sg['clear_main']*100:.0f}% 사망 {Sg['deaths']:.2f} 판 {Sg['time']/60:.1f}분 — 누진 사망 비용(3,4,5,6)이 '죽으며 깎기'를 벌한다")
+    glass = {"hp": 0.5, "atk": 3.0, "luk": 0.5, "ls": 0.0}
+    for pl_ in (0, 5, 10):
+        pp = {i: pl_ for i in all_items} if pl_ else None
+        Sg, _ = scenario(cfg, "full", all_items, H, ratio=glass, plus=pp)
+        Sbal = S20 if pl_ == 0 else SP[pl_]
+        if Sg["clear"] < Sbal["clear"] - 0.05:
+            verdict = "함정(클리어 ↓): 누진 사망 비용·에너지 상한·부활 무적 중 보스 피해 ×%.2f 이 '죽으며 깎기'를 벌한다" % cfg["combat"]["revive_invuln_boss_dmg_mult"]
+        elif Sg["final"] <= Sbal["final"] * 1.01:
+            verdict = "클리어는 되지만 기록 이득 없음(최종 레벨 ≤ 균형) — 함정 라벨은 +5 까지, +10 은 '손해 없는 취향'"
+        else:
+            verdict = "주의: 이 강화 단계에서는 균형보다 기록이 높다"
+        print(f"공격 몰빵(0.5:3:0.5:0, 유리대포 함정) 풀장비 +{pl_} 20보스 판: 클리어 {Sg['clear']*100:.0f}% 사망 {Sg['deaths']:.2f} 판 {Sg['time']/60:.1f}분 최종 {fmt_big(Sg['final'])} 에너지 잔여 {Sg['energy_left']:.0f} | "
+              f"균형 +{pl_}: 클리어 {Sbal['clear']*100:.0f}% 사망 {Sbal['deaths']:.2f} 최종 {fmt_big(Sbal['final'])} — {verdict}")
     St, _ = scenario(cfg, "main", all_items, H, ratio={"hp": 1.5, "atk": 1.5, "luk": 0.0, "ls": 1.0})
     print(f"행운 0 탱커(1.5:1.5:0:1, 함정) 풀장비 가운데 길: 클리어 {St['clear_main']*100:.0f}% 사망 {St['deaths']:.2f} 판 {St['time']/60:.1f}분 — 치명 5%·당첨 0·(PvP)회피 하한만 → 행운 10~17% 가 최적(한계 효용)")
     print("\nM-2 흡혈 무한 생존 시도: 흡혈 극대(0.5:1:0:2.5 + 송곳니·성배 +10) vs 균형, 권장 레벨에서 보스 단독 100회 — 초당 회복(최대체력 %) vs 초당 피격")
     print("| 보스 | 빌드 | 흡혈률 | 초당 회복 상한 | 실측 회복/초 | 실측 피격/초 | 승률 | 사망 | 초 |")
     print("|---|---|---|---|---|---|---|---|---|")
     ls_ratio = {"hp": 0.5, "atk": 1.0, "luk": 0.0, "ls": 2.5}
-    for bid in ("B09", "B17", "B20"):
+    for bid in ("B09", "B15", "B17", "B20"):
         b = cfg["bosses"][bid]
         for name, ratio, plus in (("흡혈 극대", ls_ratio, {"I03": 10, "I17": 10}), ("균형", cfg["builds"]["균형(기본)"], None)):
             eq = auto_equip(cfg, all_items)
@@ -1305,7 +1478,7 @@ def full_report(cfg, N, quick=False):
                 pl = Player(cfg, g, ratio)
                 feed_exp(pl, curve.E(b["recommended_level"]))
                 pl.hp = pl.maxhp()
-                rs = RunState(cfg, rnd, 999)
+                rs = RunState(cfg, rnd, 999, unlimited=True)
                 res = combat(rs, pl, None, b, False, True)
                 heals.append(res["heal_ps"] / pl.maxhp()); dmgs.append(res["dmg_ps"] / pl.maxhp()); wins += res["won"]; deaths += res["deaths"]; secs.append(res["secs"])
             ls_eff = pl.ls() * b["gimmick"].get("player_ls_mult", 1.0)
@@ -1356,23 +1529,58 @@ def full_report(cfg, N, quick=False):
         tot, per = boss_rush(cfg, all_items, {i: pl for i in all_items}, n=20)
         print(f"  풀장비 +{pl}: 합계 {tot:.0f}초 ({tot/60:.1f}분), 보스별 {' '.join(f'{v:.0f}' for v in per.values())}")
     # Q. 워프 판
-    Sw10, _ = scenario(cfg, "right", all_items, H, start="plaza10")
-    print_summary(cfg, "Q. 워프 제단 판 — 10단계 광장에서 시작(군단 루프만), 풀장비 (해금: 황제 드래곤 3회 처치; 기록판 '워프 판' 표식)", Sw10)
+    Sw10, Rw10 = scenario(cfg, "right", all_items, H, start="plaza10")
+    print_summary(cfg, "Q. 워프 제단 판 — 10단계 광장에서 시작(군단 루프만), 풀장비 (해금: 황제 드래곤 3회 처치; 기록판 '워프 판' 표식; 재처치 강화석 ×%.1f·보너스 없음·일 %d회)" % (cfg["run"]["warp"]["repeat_stone_mult"], cfg["run"]["warp"]["daily_limit"]), Sw10)
+    # Q-2 워프 농사 효율 (K2-4): 분당 4급 강화석·정수, 마을 20보스 판과 비교
+    print("\n### Q-2. 강화석 농사 효율 — 마을 20보스 판 vs 워프 판(10단계 광장 → 군단 5보스), 풀장비 +0 / +10, 분당 4급 강화석·정수")
+    print("| 판 | 강화 | 판 시간(분) | 4급 강화석/판 | 4급/분 | 정수/판 | 정수/분 |")
+    print("|---|---|---|---|---|---|---|")
+    warp_eff = {}
+    for label, plan_, start_ in (("마을 20보스(E-2)", "full", "village"), ("워프 plaza10 → 군단 5보스(Q)", "right", "plaza10")):
+        for pl_ in (0, 10):
+            pp = {i: pl_ for i in all_items} if pl_ else None
+            Sx, Rx = scenario(cfg, plan_, all_items, H, plus=pp, start=start_)
+            t4 = st.mean(r["stones"]["4"] for r in Rx)
+            es = st.mean(sum(r["essence"].values()) for r in Rx)
+            tm = Sx["time"] / 60
+            warp_eff[(label, pl_)] = t4 / tm
+            print(f"| {label} | +{pl_} | {tm:.1f} | {t4:.1f} | {t4/tm:.2f} | {es:.1f} | {es/tm:.2f} |")
+    print(f"워프 판 분당 4급 강화석 / 마을 판 = ×{warp_eff[('워프 plaza10 → 군단 5보스(Q)', 10)]/warp_eff[('마을 20보스(E-2)', 10)]:.2f} (+10 기준, 목표 ≤1.3 — 여기에 일 {cfg['run']['warp']['daily_limit']}회 제한)")
+    # R. MVP (K3-2): 가운데 1~5구간만 (기존 v8 자산 5보스)
+    cfg_m = json.loads(json.dumps(cfg))
+    cfg_m["routes"]["main"]["stages"] = cfg_m["routes"]["main"]["stages"][:5]
+    five = [cfg_m["bosses"][s["boss"]]["drop_item"] for s in cfg_m["routes"]["main"]["stages"]]
+    print("\n### R. MVP 검증 — 가운데 1~5구간만(보스 5·아이템 5·기믹 7키, 신규 모델 0), 피버 OFF")
+    print("| 보유 아이템 | 5보스 클리어 | 평균 처치 | 판 시간(분) | 사망 | 중간 최종 레벨 | B02 처치 | B03 처치 | 에너지 잔여(중간) |")
+    print("|---|---|---|---|---|---|---|---|---|")
+    mvp_rows = {}
+    for k in (0, 1, 2, 3, 5):
+        Sm, _ = scenario(cfg_m, "main", five[:k], H, fever=False)
+        mvp_rows[k] = Sm
+        print(f"| {k}개 | {Sm['clear']*100:.0f}% | {Sm['bosses']:.2f} | {Sm['time']/60:.1f} | {Sm['deaths']:.2f} | {fmt_big(Sm['final'])} | {Sm['rows'][1]['kill']*100:.0f}% | {Sm['rows'][2]['kill']*100:.0f}% | {Sm['energy_left']:.0f} |")
     # 핵심 요약
     print("\n### 핵심 수치 요약")
     first = S0["rows"][0]
     nat_secs = [r["secs"] for r in nat_rows.values() if r["reach"] > 0 and r["spawn"] > 0]
     nat_deaths = [r["deaths"] for r in nat_rows.values() if r["reach"] > 0 and r["spawn"] > 0]
     f10 = [r["secs"] for r in SP[10]["rows"] if r["reach"] > 0 and r["spawn"] > 0]
+    nat_kill = [r["kill"] for r in nat_rows.values() if r["reach"] > 0 and r["spawn"] > 0]
+    nat_go = [r["gameover"] for r in nat_rows.values() if r["reach"] > 0 and r["spawn"] > 0]
     print(f"first_run_minutes={S0['time']/60:.2f} first_boss_win_no_gear={first['win']:.3f} first_boss_deaths={first['deaths']:.2f} first_boss_secs={first['secs']:.1f} "
-          f"second_boss_reach={S0['rows'][1]['reach']:.2f} full_clear_main_minutes={S20m['time_clear']/60:.2f} full_clear_20_minutes={S20['time_clear']/60:.2f} "
-          f"clear20_full_gear={S20['clear']:.2f} final_level_full20={int(S20['final'])} natural_secs={min(nat_secs):.1f}~{max(nat_secs):.1f} "
-          f"natural_deaths={min(nat_deaths):.2f}~{max(nat_deaths):.2f} plus10_min_secs={min(f10):.1f} fever_per_run={S20m['fever']:.1f} "
+          f"second_boss_reach={S0['rows'][1]['reach']:.2f} second_boss_kill={S0['rows'][1]['kill']:.2f} third_boss_enter={S0['rows'][2]['enter']:.2f} third_boss_kill={S0['rows'][2]['kill']:.2f} "
+          f"first_run_deaths={S0['deaths']:.2f} first_run_boss_gameover={S0['boss_gameover']:.2f} first_run_after_fight_win_end={S0['ends'].get('after_fight_win', 0):.2f} "
+          f"first_run_capped={S0['capped']:.2f} fever_off_second_boss_kill={S0f['rows'][1]['kill']:.2f} "
+          f"full_clear_main_minutes={S20m['time_clear']/60:.2f} full_clear_20_minutes={S20['time_clear']/60:.2f} "
+          f"clear20_full_gear={S20['clear']:.2f} final_level_full20={int(S20['final'])} energy_left_full20={S20['energy_left']:.0f} natural_secs={min(nat_secs):.1f}~{max(nat_secs):.1f} "
+          f"natural_deaths={min(nat_deaths):.2f}~{max(nat_deaths):.2f} natural_kill={min(nat_kill):.2f}~{max(nat_kill):.2f} natural_gameover_max={max(nat_go):.2f} "
+          f"plus10_min_secs={min(f10):.1f} fever_per_run={S20m['fever']:.1f} "
           f"plus10_abs_min_secs={min(r['secs_min'] for r in SP[10]['rows'] if r['reach'] > 0 and r['spawn'] > 0):.1f} "
           f"tank_clear_main={build_rows['탱커'][0]['clear_main']:.2f} tank_clear_20={build_rows['탱커'][1]['clear']:.2f} "
           f"ls_deaths_main={build_rows['흡혈 균형'][0]['deaths']:.2f} bal_deaths_main={build_rows['균형(기본)'][0]['deaths']:.2f} "
           f"ls_deaths_20={build_rows['흡혈 균형'][1]['deaths']:.2f} bal_deaths_20={build_rows['균형(기본)'][1]['deaths']:.2f} "
-          f"pvp_pair_range={pvp_range[0]*100:.0f}~{pvp_range[1]*100:.0f}% max_hit_taken={max(S0['max_hit'], S20['max_hit'])*100:.0f}%")
+          f"pvp_pair_range={pvp_range[0]*100:.0f}~{pvp_range[1]*100:.0f}% pvp_asym_range={asym[0]*100:.0f}~{asym[1]*100:.0f}% max_hit_taken={max(S0['max_hit'], S20['max_hit'])*100:.0f}% "
+          f"glass10_clear={Sg['clear']:.2f} glass10_final_ratio={Sg['final']/SP[10]['final']:.2f} warp_stone_ratio={warp_eff[('워프 plaza10 → 군단 5보스(Q)', 10)]/warp_eff[('마을 20보스(E-2)', 10)]:.2f} "
+          f"mvp5_clear_5items={mvp_rows[5]['clear']:.2f} mvp5_minutes_0items={mvp_rows[0]['time']/60:.2f}")
     print(f"(소요 {time.time()-t0:.0f}초)")
 
 
@@ -1395,7 +1603,7 @@ def quick_scenario(cfg, args):
     r0 = R[0]
     print(f"판 끝 능력치(1번 판): 레벨 {fmt_big(r0['final_lvl'])} 공격 {fmt_big(r0['atk'])} 체력 {fmt_big(r0['hp'])} 치명 {r0['crit']*100:.0f}% 흡혈 {r0['ls']*100:.1f}% 공속 ×{r0['aspd']:.2f}")
     print("단계별 중간 레벨(진입→퇴장): " + " / ".join(f"{sl['route'][0]}{sl['stage']}:{fmt_big(sl['lvl_in'])}→{fmt_big(sl['lvl_out'])}" for sl in R[0]["stage_log"]))
-    print("판 소요 초(중간) %.0f, 에너지 잔여(중간) %s" % (S["time"], S["energy_left"]))
+    print("판 소요 초(중간) %.0f, 에너지 잔여(중간/최소) %s/%s, 보스전 도중 게임오버 %.0f%%" % (S["time"], S["energy_left"], S["energy_min"], S["boss_gameover"] * 100))
 
 
 def main():
